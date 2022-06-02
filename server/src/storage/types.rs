@@ -1,6 +1,34 @@
+use std::cmp::{Eq, PartialEq};
+use std::collections::HashMap;
+use std::collections::hash_map::Entry;
+use std::hash::{Hash, Hasher};
 use std::time::SystemTime;
-use client::data_types::{StorageKey, StorageValue};
+
+use client::data_types::{Int, Float, StorageKey};
 use client::error::ServerError;
+
+
+/// Types of keys that can be used in a map
+#[derive(Clone, Copy, Debug)]
+pub enum KeyType{
+    /// A string
+    StringKey,
+    /// An integer
+    IntKey,
+}
+
+/// Types of values that can be saved in collections (Maps and Vectors)
+#[derive(Clone, Copy, Debug)]
+pub enum CollectionType {
+    /// A collection of booleans
+    BoolCollection,
+    /// A collection of strings
+    StringCollection,
+    /// A collection of integers
+    IntCollection,
+    /// A collection of floats
+    FloatCollection,
+}
 
 
 /// The types supported by the database
@@ -16,14 +44,263 @@ pub enum StorageValue {
     IntValue(Int),
     /// A float
     FloatValue(Float),
-    /// A list of strings
-    StringVector(Vec<String>),
-    /// A list of ints
-    IntVector(Vec<Int>),
-    /// A list of floats
-    FloatVector(Vec<Float>),
+    /// A vector
+    VectorValue(StorageVector),
     /// A map
-    Map()
+    MapValue(StorageMap),
+}
+
+impl Hash for StorageValue {
+    /// Hash function for StorageValue instances
+    /// 
+    /// This is only defined for StringValue and IntValue, otherwise will panic.
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: Hasher
+    {
+        match self {
+            StorageValue::StringValue(value) => value.hash(state),
+            StorageValue::IntValue(value) => value.hash(state),
+            _ => unimplemented!("Hash only implemented for StorageValues IntValue and FloatValue."),
+        };
+    }
+}
+
+impl PartialEq for StorageValue {
+    /// Equality for StorageValue is only defined for BoolValue, StringValue, and IntValue, all else
+    /// will return false.
+    fn eq(&self, other: &Self) -> bool {
+        match self {
+            StorageValue::BoolValue(value) => {
+                if let StorageValue::BoolValue(other_value) = other {
+                    value == other_value
+                } else {
+                    false
+                }
+            },
+            StorageValue::StringValue(value) => {
+                if let StorageValue::StringValue(other_value) = other {
+                    value == other_value
+                } else {
+                    false
+                }
+            },
+            StorageValue::FloatValue(value) => {
+                if let StorageValue::FloatValue(other_value) = other {
+                    value == other_value
+                } else {
+                    false
+                }
+            },
+            _ => false
+        }
+    }
+}
+
+
+impl Eq for StorageValue {}
+
+
+/// Check that a storage value matches the expected type
+fn validate_value(
+    value: &StorageValue, value_type: CollectionType
+) -> Result<(), ServerError> {
+    match value_type {
+        CollectionType::BoolCollection => {
+            match value {
+                StorageValue::IntValue(_) => Ok(()),
+                _ => Err(ServerError::TypeError("Expected an integer key".to_string())),
+            }
+        },
+        CollectionType::IntCollection => {
+            match value {
+                StorageValue::IntValue(_) => Ok(()),
+                _ => Err(ServerError::TypeError("Expected an integer key".to_string())),
+            }
+        },
+        CollectionType::StringCollection => {
+            match value {
+                StorageValue::StringValue(_) => Ok(()),
+                _ => Err(ServerError::TypeError("Expected an integer key".to_string())),
+            }
+        },
+        CollectionType::FloatCollection => {
+            match value {
+                StorageValue::FloatValue(_) => Ok(()),
+                _ => Err(ServerError::TypeError("Expected an integer key".to_string())),
+            }
+        },
+    }
+}
+
+
+/// Check that a storage value matches the expected key type
+fn validate_key(key: &StorageValue, key_type: KeyType) -> Result<(), ServerError> {
+    match key_type {
+        KeyType::IntKey => {
+            match key {
+                StorageValue::IntValue(_) => Ok(()),
+                _ => Err(ServerError::TypeError("Expected an integer key".to_string())),
+            }
+        },
+        KeyType::StringKey => {
+            match key {
+                StorageValue::StringValue(_) => Ok(()),
+                _ => Err(ServerError::TypeError("Expected a string key.".to_string()))
+            }
+        }
+    }
+}
+
+/// A vector object that can be saved in the key value store
+#[derive(Clone, Debug)]
+pub struct StorageVector {
+    /// The raw vector to be accessed
+    vector: Vec<StorageValue>,
+    /// The type of data held in the vector
+    value_type: CollectionType
+}
+
+
+
+impl StorageVector {
+    /// Create a new vector holding some data type
+    fn new(value_type: CollectionType) -> StorageVector {
+        StorageVector{vector: vec![], value_type}
+    }
+
+    fn pop(&mut self) -> Option<StorageValue> {
+        self.vector.pop()
+    }
+
+    fn len(&self) -> usize {
+        self.vector.len()
+    }
+
+    fn get(&self, index: usize) -> Result<&StorageValue, ServerError> {
+        match self.vector.get(index) {
+            Some(value) => Ok(value),
+            None => Err(
+                ServerError::IndexError(
+                    format!(
+                        "Cannot get entry {}, vector has only {} elements.",
+                        index,
+                        self.vector.len(),
+                    )
+                )
+            ),
+        }
+    }
+}
+
+
+
+/// A map object that can be saved in the key value store
+#[derive(Clone, Debug)]
+pub struct StorageMap {
+    /// The raw map to be accessed
+    map: HashMap<StorageValue, StorageValue>,
+    /// The type of key to be used
+    key_type: KeyType,
+    /// The type of data held in the map
+    value_type: CollectionType,    
+}
+
+
+impl StorageMap {
+    /// Create a new map with keys and data of the given types.
+    pub fn new(key_type: KeyType, value_type: CollectionType) -> StorageMap {
+        StorageMap{map: HashMap::new(), key_type, value_type}
+    }
+
+    /// Get the value with the given key. 
+    /// 
+    /// Returns an error if:
+    ///   1) An incorrect key type is found (TypeError)
+    ///   2) The key is not present (KeyError)
+    fn get(&self, key: &StorageValue) -> Result<&StorageValue, ServerError> {
+        let value = match validate_key(key, self.key_type) {
+            Ok(_) => self.map.get(key),
+            Err(err) => return Err(err),
+        };
+        match value {
+            Some(value) => Ok(value),
+            None => Err(ServerError::IndexError("No entry found for the given key.".to_string()))
+        }
+    }
+
+    
+    /// See if the given key exists in the map
+    /// 
+    /// Returns an error if an incorrect key type is found (TypeError)
+    fn contains_key(&self, key: &StorageValue) -> Result<bool, ServerError> {
+        let value = match validate_key(key, self.key_type) {
+            Ok(_) => self.map.contains_key(key),
+            Err(err) => return Err(err),
+        };
+        Ok(value)
+    }
+
+
+    /// See if the given key exists in the map
+    /// 
+    /// Returns an error if:
+    ///   1) An incorrect key type is found (TypeError)
+    ///   2) An incorrect value type is found (TypeError)
+    fn set(
+        &mut self, key: StorageValue, value: StorageValue
+    ) -> Result<(), ServerError> {
+        match validate_key(&key, self.key_type) {
+            Ok(_) => (),
+            Err(err) => return Err(err),
+        };
+        match validate_value(&value, self.value_type) {
+            Ok(_) => (),
+            Err(err) => return Err(err)
+        };
+
+        self.map.insert(key, value);
+        Ok(())
+    }
+
+    /// Set a value only if the key isn't already set
+    fn try_set(
+        &mut self, key: StorageValue, value: StorageValue
+    ) -> Result<bool, ServerError> {
+        match validate_key(&key, self.key_type) {
+            Ok(_) => (),
+            Err(err) => return Err(err),
+        };
+        match validate_value(&value, self.value_type) {
+            Ok(_) => (),
+            Err(err) => return Err(err)
+        };
+        if self.map.contains_key(&key) {
+            Ok(false)
+        } else{
+            self.map.insert(key, value);
+            Ok(true)
+        }
+    }
+
+    /// Remove an entry from the map
+    fn delete(&mut self, key: &StorageValue) -> Result<bool, ServerError>{
+        match validate_key(&key, self.key_type) {
+            Ok(_) => (),
+            Err(err) => return Err(err),
+        };
+        match self.map.remove_entry(key) {
+            Some(_) => Ok(true),
+            None => Ok(false)
+        }
+    }
+
+    /// Get the number of entries in the map
+    fn len(&self) -> usize {
+        self.map.len()
+    }
+
+    
 }
 
 

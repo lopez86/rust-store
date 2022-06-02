@@ -1,4 +1,4 @@
-use crate::analysis::tokens::{Token, get_word_to_token_map};
+use crate::analysis::tokens::{AnnotatedToken, Token, get_word_to_token_map};
 use client::error::ServerError;
 
 
@@ -20,6 +20,7 @@ fn is_valid_literal_end_char(c: char) -> bool {
 pub struct Tokenizer {
     command: Vec<char>,
     current_index: usize,
+    token_start_index: usize,
     error_detected: bool,
 }
 
@@ -32,13 +33,14 @@ impl Tokenizer {
         Tokenizer {
             command,
             current_index: 0,
+            token_start_index: 0,
             error_detected: false,
         }
     }
 
     /// Scan the text of a command for characters
-    pub fn scan(&mut self) -> Result<Vec<Token>, ServerError> {
-        let mut tokens: Vec<Token> = vec![];
+    pub fn scan(&mut self) -> Result<Vec<AnnotatedToken>, ServerError> {
+        let mut tokens: Vec<AnnotatedToken> = vec![];
         for maybe_token in self {
             match maybe_token {
                 Err(err) => return Err(err),
@@ -52,6 +54,7 @@ impl Tokenizer {
 
     /// Retrieve the next token
     fn get_next_token(&mut self) -> Result<Token, ServerError> {
+        self.token_start_index = self.current_index;
         let next_char = self.view();
         let next_token = if next_char == ';' {
             self.advance();
@@ -72,7 +75,7 @@ impl Tokenizer {
         } else if is_identifier_start_char(next_char) {
             self.get_identifier()
         } else {
-            return Err(ServerError::SyntaxError("Cannot build token.".to_string()))
+            return Err(ServerError::TokenizationError("Cannot build token.".to_string()))
         };
         next_token
     }
@@ -115,7 +118,7 @@ impl Tokenizer {
                 Ok(val) => val,
                 Err(_) => {
                     return Err(
-                        ServerError::SyntaxError(
+                        ServerError::TokenizationError(
                             format!("Expected float literal, got '{}'", token_string)
                         )
                     );
@@ -127,7 +130,7 @@ impl Tokenizer {
                 Ok(val) => val,
                 Err(_) => {
                     return Err(
-                        ServerError::SyntaxError(
+                        ServerError::TokenizationError(
                             format!("Expected integer literal, got '{}'", token_string)
                         )
                     );
@@ -143,7 +146,7 @@ impl Tokenizer {
         let mut char_vec = vec![];
         loop {
             if self.is_at_end() {
-                return Err(ServerError::SyntaxError("Unterminated string found.".to_string()));
+                return Err(ServerError::TokenizationError("Unterminated string found.".to_string()));
             }
             let next_char = self.advance();
             if next_char == '"' {
@@ -151,7 +154,7 @@ impl Tokenizer {
             }
             if next_char == '\\' {
                 if self.is_at_end() {
-                    return Err(ServerError::SyntaxError("Unterminated string found.".to_string()));
+                    return Err(ServerError::TokenizationError("Unterminated string found.".to_string()));
                 }
                 let escape_char = self.advance();
                 match escape_char {
@@ -160,7 +163,7 @@ impl Tokenizer {
                     't' => char_vec.push('\t'),
                     'n' => char_vec.push('\n'),
                     other => return Err(
-                        ServerError::SyntaxError(
+                        ServerError::TokenizationError(
                             format!("Invalid escape character '{}' found", other)
                         )
                     ),
@@ -187,7 +190,7 @@ impl Tokenizer {
                 char_vec.push(next_char)
             } else {
                 return Err(
-                    ServerError::SyntaxError(
+                    ServerError::TokenizationError(
                         format!("'{}' is an invalid identifier character.", next_char)
                     )
                 );
@@ -204,7 +207,7 @@ impl Tokenizer {
 }
 
 impl Iterator for Tokenizer {
-    type Item = Result<Token, ServerError>;
+    type Item = Result<AnnotatedToken, ServerError>;
     fn next(&mut self) -> Option<Self::Item> {
         if self.is_at_end() | self.error_detected {
             return None
@@ -214,7 +217,17 @@ impl Iterator for Tokenizer {
                 self.error_detected = true;
                 Some(Err(err))
             }
-            Ok(token) => Some(Ok(token))
+            Ok(token) => Some(
+                Ok(
+                    AnnotatedToken {
+                        token,
+                        position: self.token_start_index,
+                        lexeme: self.command[
+                            self.token_start_index..self.current_index
+                        ].iter().collect(),
+                    }
+                )
+            )
         }
     }
 }

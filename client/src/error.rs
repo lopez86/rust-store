@@ -5,8 +5,17 @@ pub enum ServerError {
     NetworkError(String),
     /// Cannot write for some reason
     WriteError(String),
-    /// Syntax is incorrect
-    SyntaxError(String),
+    ///  Tokenization errors
+    TokenizationError(String),
+    /// Parsing fails
+    ParseError(String),
+    /// Indexing in a vector or map fails
+    IndexError(String),
+    /// The type of something is not what was expected
+    TypeError(String),
+    /// A lifetime is incorrect (0 or negative)
+    InvalidLifetimeError(String),
+    
     /// Catchall for anything else
     OtherError(String),
 }

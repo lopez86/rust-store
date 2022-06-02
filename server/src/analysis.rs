@@ -8,6 +8,6 @@ pub mod tokenizer;
 pub mod statements;
 
 pub use tokenizer::Tokenizer;
-pub use tokens::Token;
+pub use tokens::{AnnotatedToken, Token};
 pub use parser::Parser;
 pub use statements::Statement;

@@ -15,6 +15,7 @@ pub fn get_word_to_token_map() -> HashMap<String, Token> {
         ("none".to_string(), Token::None),
         ("true".to_string(), Token::Bool(true)),
         ("false".to_string(), Token::Bool(false)),
+        ("type".to_string(), Token::ValueType),
         // Vector operations
         ("vset".to_string(), Token::VectorSet),
         ("vget".to_string(), Token::VectorGet),
@@ -22,6 +23,7 @@ pub fn get_word_to_token_map() -> HashMap<String, Token> {
         ("vpush".to_string(), Token::VectorAppend),
         ("vlen".to_string(), Token::VectorLength),
         // Map operations
+        ("mex".to_string(), Token::MapExists),
         ("mget".to_string(), Token::MapGet),
         ("mset".to_string(), Token::MapSet),
         ("mdel".to_string(), Token::MapDelete),
@@ -35,6 +37,18 @@ pub fn get_word_to_token_map() -> HashMap<String, Token> {
         ("map".to_string(), Token::MapType),
     ])
 }
+
+
+/// A token with some extra annotations needed for error handling
+pub struct AnnotatedToken {
+    /// The token to process
+    pub token: Token,
+    /// The position in the input
+    pub position: usize,
+    /// The string of the current value
+    pub lexeme: String,
+}
+
 
 /// Basic tokens that a command might include
 #[derive(Clone)]
@@ -91,6 +105,10 @@ pub enum Token {
     VectorLength,
     /// Map length/size
     MapLength,
+    /// Check if a key is in a map
+    MapExists,
+    /// What kind of object something is 
+    ValueType,
     /// Integer type
     IntType,
     /// Float type
