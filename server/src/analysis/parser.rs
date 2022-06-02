@@ -74,28 +74,27 @@ impl Parser {
         if self.is_at_end() {
             return Ok(None);
         }
-        let next_token = self.advance();
         let AnnotatedToken{token, position, lexeme,} = self.advance();
         let statement = match token {
-            Token::Delete => self.delete(self.view()),
-            Token::Exists => self.exists(self.view()),
-            Token::Get => self.get(self.view()),
-            Token::GetOrNone => self.get_or_none(self.view()),
-            Token::MapDelete => self.map_delete(self.view()),
-            Token::MapExists => self.map_exists(self.view()),
-            Token::MapGet => self.map_get(self.view()),
-            Token::MapLength => self.map_length(self.view()),
-            Token::MapSet => self.map_set(self.view()),
-            Token::Set => self.set(self.view()),
-            Token::SetIfNotExists => self.set_if_not_exists(self.view()),
-            Token::SetLifetime => self.set_lifetime(self.view()),
-            Token::Update => self.update(self.view()),
-            Token::ValueType => self.value_type(self.view()),
-            Token::VectorAppend => self.vector_append(self.view()),
-            Token::VectorGet => self.vector_get(self.view()),
-            Token::VectorLength => self.vector_length(self.view()),
-            Token::VectorPop => self.vector_pop(self.view()),
-            Token::VectorSet => self.vector_set(self.view()),
+            Token::Delete => self.delete(),
+            Token::Exists => self.exists(),
+            Token::Get => self.get(),
+            Token::GetOrNone => self.get_or_none(),
+            Token::MapDelete => self.map_delete(),
+            Token::MapExists => self.map_exists(),
+            Token::MapGet => self.map_get(),
+            Token::MapLength => self.map_length(),
+            Token::MapSet => self.map_set(),
+            Token::Set => self.set(),
+            Token::SetIfNotExists => self.set_if_not_exists(),
+            Token::SetLifetime => self.set_lifetime(),
+            Token::Update => self.update(),
+            Token::ValueType => self.value_type(),
+            Token::VectorAppend => self.vector_append(),
+            Token::VectorGet => self.vector_get(),
+            Token::VectorLength => self.vector_length(),
+            Token::VectorPop => self.vector_pop(),
+            Token::VectorSet => self.vector_set(),
             _ => return Err(
                 ServerError::ParseError(
                     format!(
@@ -106,7 +105,86 @@ impl Parser {
                 )
             ),
         };
-        statement
+        match statement {
+            Ok(statement) => Ok(Some(statement)),
+            Err(err) => Err(err),
+        }
+    }
+
+    fn delete(&mut self) -> Result<Statement, ServerError> {
+        Err(ServerError::ParseError("Feature not implemented.".to_string()))
+    }
+
+    fn exists(&mut self) -> Result<Statement, ServerError> {
+        Err(ServerError::ParseError("Feature not implemented.".to_string()))
+    }
+
+    fn get(&mut self) -> Result<Statement, ServerError> {
+        Err(ServerError::ParseError("Feature not implemented.".to_string()))
+    }
+
+    fn get_or_none(&mut self) -> Result<Statement, ServerError> {
+        Err(ServerError::ParseError("Feature not implemented.".to_string()))
+    }
+
+    fn map_delete(&mut self) -> Result<Statement, ServerError> {
+        Err(ServerError::ParseError("Feature not implemented.".to_string()))
+    }
+
+    fn map_exists(&mut self) -> Result<Statement, ServerError> {
+        Err(ServerError::ParseError("Feature not implemented.".to_string()))
+    }
+
+    fn map_get(&mut self) -> Result<Statement, ServerError> {
+        Err(ServerError::ParseError("Feature not implemented.".to_string()))
+    }
+
+    fn map_length(&mut self) -> Result<Statement, ServerError> {
+        Err(ServerError::ParseError("Feature not implemented.".to_string()))
+    }
+
+    fn map_set(&mut self) -> Result<Statement, ServerError> {
+        Err(ServerError::ParseError("Feature not implemented.".to_string()))
+    }
+
+    fn set(&mut self) ->Result<Statement, ServerError> {
+        Err(ServerError::ParseError("Feature not implemented.".to_string()))
+    }
+
+    fn set_if_not_exists(&mut self) -> Result<Statement, ServerError> {
+        Err(ServerError::ParseError("Feature not implemented.".to_string()))
+    }
+
+    fn set_lifetime(&mut self) -> Result<Statement, ServerError> {
+        Err(ServerError::ParseError("Feature not implemented.".to_string()))
+    }
+
+    fn update(&mut self) -> Result<Statement, ServerError> {
+        Err(ServerError::ParseError("Feature not implemented.".to_string()))
+    }
+
+    fn value_type(&mut self) -> Result<Statement, ServerError> {
+        Err(ServerError::ParseError("Feature not implemented.".to_string()))
+    }
+
+    fn vector_append(&mut self) -> Result<Statement, ServerError> {
+        Err(ServerError::ParseError("Feature not implemented.".to_string()))
+    }
+
+    fn vector_get(&mut self) -> Result<Statement, ServerError> {
+        Err(ServerError::ParseError("Feature not implemented.".to_string()))
+    }
+
+    fn vector_length(&mut self) -> Result<Statement, ServerError> {
+        Err(ServerError::ParseError("Feature not implemented.".to_string()))
+    }
+
+    fn vector_pop(&mut self) -> Result<Statement, ServerError> {
+        Err(ServerError::ParseError("Feature not implemented.".to_string()))
+    }
+
+    fn vector_set(&mut self) -> Result<Statement, ServerError> {
+        Err(ServerError::ParseError("Feature not implemented.".to_string()))
     }
 
     /// Remove any successive semicolons at the current position
@@ -133,7 +211,6 @@ impl Parser {
 impl Iterator for Parser {
     type Item = Result<Statement, ServerError>;
 
-    /// Get the next items
     fn next(&mut self) -> Option<Self::Item> {
         if self.is_at_end() | self.error_encountered {
             return None;
@@ -145,6 +222,3 @@ impl Iterator for Parser {
         }
     }
 }
-
-
-

@@ -6,8 +6,7 @@ use crate::storage::StorageValue;
 
 /// Lifetime in seconds of a 
 type Lifetime = u64;
-/// A vector index
-type Index = usize;
+
 
 /// Statement
 #[derive(Clone, Debug)]
@@ -21,8 +20,8 @@ pub enum Statement {
     UpdateLifetime(StorageKey, Option<Lifetime>),
     GetIfExists(StorageKey),
     SetIfNotExists(StorageKey, StorageValue, Option<Lifetime>),
-    VectorGet(StorageKey, Index),
-    VectorSet(StorageKey, Index, StorageValue),
+    VectorGet(StorageKey, usize),
+    VectorSet(StorageKey, usize, StorageValue),
     VectorAppend(StorageKey, StorageValue),
     VectorPop(StorageKey),
     VectorLength(StorageKey),
@@ -30,4 +29,7 @@ pub enum Statement {
     MapSet(StorageKey, StorageValue, StorageValue),
     MapDelete(StorageKey, StorageValue),
     MapLength(StorageKey),
+    MapExists(StorageKey),
+    ValueType(StorageKey),
+    Null,
 }

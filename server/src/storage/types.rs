@@ -1,6 +1,5 @@
 use std::cmp::{Eq, PartialEq};
 use std::collections::HashMap;
-use std::collections::hash_map::Entry;
 use std::hash::{Hash, Hasher};
 use std::time::SystemTime;
 
@@ -169,14 +168,17 @@ impl StorageVector {
         StorageVector{vector: vec![], value_type}
     }
 
+    /// Pop the last value off the vector and return it
     fn pop(&mut self) -> Option<StorageValue> {
         self.vector.pop()
     }
 
+    /// Get the length of the vector
     fn len(&self) -> usize {
         self.vector.len()
     }
 
+    /// Get the value at the given location
     fn get(&self, index: usize) -> Result<&StorageValue, ServerError> {
         match self.vector.get(index) {
             Some(value) => Ok(value),
@@ -190,6 +192,37 @@ impl StorageVector {
                 )
             ),
         }
+    }
+
+    /// Push a new value to the end of the vector
+    fn push(&mut self, value: StorageValue) -> Result<(), ServerError> {
+        match validate_value(&value, self.value_type) {
+            Ok(_) => (),
+            Err(err) => return Err(err)
+        };
+        self.vector.push(value);
+        Ok(())
+    }
+
+    /// Set the value at a given index
+    fn set(&mut self, index: usize, value: StorageValue) -> Result<(), ServerError> {
+        match validate_value(&value, self.value_type) {
+            Ok(_) => (),
+            Err(err) => return Err(err)
+        };
+        if index >= self.vector.len() {
+            return Err(
+                ServerError::IndexError(
+                    format!(
+                        "Cannot set value at index {}. Vector has {} elements.",
+                        index,
+                        self.vector.len(),
+                    )
+                )
+            )
+        }
+        self.vector[index] = value;
+        Ok(())
     }
 }
 
@@ -261,26 +294,6 @@ impl StorageMap {
 
         self.map.insert(key, value);
         Ok(())
-    }
-
-    /// Set a value only if the key isn't already set
-    fn try_set(
-        &mut self, key: StorageValue, value: StorageValue
-    ) -> Result<bool, ServerError> {
-        match validate_key(&key, self.key_type) {
-            Ok(_) => (),
-            Err(err) => return Err(err),
-        };
-        match validate_value(&value, self.value_type) {
-            Ok(_) => (),
-            Err(err) => return Err(err)
-        };
-        if self.map.contains_key(&key) {
-            Ok(false)
-        } else{
-            self.map.insert(key, value);
-            Ok(true)
-        }
     }
 
     /// Remove an entry from the map
