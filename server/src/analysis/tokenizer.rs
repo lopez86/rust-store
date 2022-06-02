@@ -2,16 +2,19 @@ use crate::analysis::tokens::{AnnotatedToken, Token, get_word_to_token_map};
 use client::error::ServerError;
 
 
+/// See if a character can be used to start an identifier
 fn is_identifier_start_char(c: char) -> bool {
     c.is_alphabetic() | (c == '_')
 }
 
+/// See if a character is valid for an identifier
 fn is_identifier_char(c: char) -> bool {
     c.is_alphanumeric() | (c == '_')
 }
 
+/// See if a character is valid to directly append to the end of a literal value
 fn is_valid_literal_end_char(c: char) -> bool {
-    ";:,".contains(c)
+    c.is_whitespace() | ";:,".contains(c)
 }
 
 /// The basic scanner only implements the most basic operations like get and set.
@@ -68,6 +71,15 @@ impl Tokenizer {
         } else if next_char == ',' {
             self.advance();
             Ok(Token::Comma)
+        } else if next_char == ':' {
+            self.advance();
+            Ok(Token::Colon)
+        } else if next_char == '{' {
+            self.advance();
+            Ok(Token::LeftCurlyBracket)
+        } else if next_char == '}' {
+            self.advance();
+            Ok(Token::RightCurlyBracket)
         } else if next_char.is_numeric() | (next_char == '-') {
             self.get_numeric()
         } else if next_char == '"' {
@@ -104,7 +116,7 @@ impl Tokenizer {
                 break;
             }
             let next_char = self.advance();
-            if next_char.is_whitespace() {
+            if is_valid_literal_end_char(next_char) {
                 break;
             }
             if next_char == '.' {
@@ -184,7 +196,7 @@ impl Tokenizer {
                 break;
             }
             let next_char = self.advance();
-            if next_char.is_whitespace() {
+            if is_valid_literal_end_char(next_char) {
                 break;
             } else if is_identifier_char(next_char) {
                 char_vec.push(next_char)

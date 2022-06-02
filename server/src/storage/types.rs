@@ -164,22 +164,22 @@ pub struct StorageVector {
 
 impl StorageVector {
     /// Create a new vector holding some data type
-    fn new(value_type: CollectionType) -> StorageVector {
+    pub fn new(value_type: CollectionType) -> StorageVector {
         StorageVector{vector: vec![], value_type}
     }
 
     /// Pop the last value off the vector and return it
-    fn pop(&mut self) -> Option<StorageValue> {
+    pub fn pop(&mut self) -> Option<StorageValue> {
         self.vector.pop()
     }
 
     /// Get the length of the vector
-    fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.vector.len()
     }
 
     /// Get the value at the given location
-    fn get(&self, index: usize) -> Result<&StorageValue, ServerError> {
+    pub fn get(&self, index: usize) -> Result<&StorageValue, ServerError> {
         match self.vector.get(index) {
             Some(value) => Ok(value),
             None => Err(
@@ -195,7 +195,7 @@ impl StorageVector {
     }
 
     /// Push a new value to the end of the vector
-    fn push(&mut self, value: StorageValue) -> Result<(), ServerError> {
+    pub fn push(&mut self, value: StorageValue) -> Result<(), ServerError> {
         match validate_value(&value, self.value_type) {
             Ok(_) => (),
             Err(err) => return Err(err)
@@ -205,7 +205,7 @@ impl StorageVector {
     }
 
     /// Set the value at a given index
-    fn set(&mut self, index: usize, value: StorageValue) -> Result<(), ServerError> {
+    pub fn set(&mut self, index: usize, value: StorageValue) -> Result<(), ServerError> {
         match validate_value(&value, self.value_type) {
             Ok(_) => (),
             Err(err) => return Err(err)
@@ -251,7 +251,7 @@ impl StorageMap {
     /// Returns an error if:
     ///   1) An incorrect key type is found (TypeError)
     ///   2) The key is not present (KeyError)
-    fn get(&self, key: &StorageValue) -> Result<&StorageValue, ServerError> {
+    pub fn get(&self, key: &StorageValue) -> Result<&StorageValue, ServerError> {
         let value = match validate_key(key, self.key_type) {
             Ok(_) => self.map.get(key),
             Err(err) => return Err(err),
@@ -266,7 +266,7 @@ impl StorageMap {
     /// See if the given key exists in the map
     /// 
     /// Returns an error if an incorrect key type is found (TypeError)
-    fn contains_key(&self, key: &StorageValue) -> Result<bool, ServerError> {
+    pub fn contains_key(&self, key: &StorageValue) -> Result<bool, ServerError> {
         let value = match validate_key(key, self.key_type) {
             Ok(_) => self.map.contains_key(key),
             Err(err) => return Err(err),
@@ -280,7 +280,7 @@ impl StorageMap {
     /// Returns an error if:
     ///   1) An incorrect key type is found (TypeError)
     ///   2) An incorrect value type is found (TypeError)
-    fn set(
+    pub fn set(
         &mut self, key: StorageValue, value: StorageValue
     ) -> Result<(), ServerError> {
         match validate_key(&key, self.key_type) {
@@ -297,7 +297,7 @@ impl StorageMap {
     }
 
     /// Remove an entry from the map
-    fn delete(&mut self, key: &StorageValue) -> Result<bool, ServerError>{
+    pub fn delete(&mut self, key: &StorageValue) -> Result<bool, ServerError>{
         match validate_key(&key, self.key_type) {
             Ok(_) => (),
             Err(err) => return Err(err),
@@ -309,7 +309,7 @@ impl StorageMap {
     }
 
     /// Get the number of entries in the map
-    fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.map.len()
     }
 
@@ -381,4 +381,49 @@ pub trait Storage {
     fn update_expiration(
         &mut self, key: &str, expiration: Option<SystemTime>
     ) -> Result<(), ServerError>;
+}
+
+
+#[cfg(test)]
+mod test {
+    use super::{*};
+
+    #[test]
+    fn test_validate_key() {
+        assert!(
+            matches!(
+                validate_key(&StorageValue::IntValue(0), KeyType::IntKey),
+                Ok(()),
+            )
+        );
+        assert!(
+            matches!(
+                validate_key(&StorageValue::StringValue(String::from("str")), KeyType::StringKey),
+                Ok(()),
+            )
+        );
+        assert!(
+            matches!(
+                validate_key(&StorageValue::IntValue(0), KeyType::StringKey),
+                Err(_),
+            )
+        );
+        assert!(
+            matches!(
+                validate_key(&StorageValue::BoolValue(false), KeyType::StringKey),
+                Err(_),
+            )
+        );
+        assert!(
+            matches!(
+                validate_key(&StorageValue::StringValue(String::from("str")), KeyType::IntKey),
+                Err(_),
+            )
+        );
+    }
+
+    #[test]
+    fn test_validate_value() {
+        
+    }
 }
