@@ -11,22 +11,22 @@ use client::error::ServerError;
 #[derive(Clone, Copy, Debug)]
 pub enum KeyType{
     /// A string
-    StringKey,
+    String,
     /// An integer
-    IntKey,
+    Int,
 }
 
 /// Types of values that can be saved in collections (Maps and Vectors)
 #[derive(Clone, Copy, Debug)]
 pub enum CollectionType {
     /// A collection of booleans
-    BoolCollection,
+    Bool,
     /// A collection of strings
-    StringCollection,
+    String,
     /// A collection of integers
-    IntCollection,
+    Int,
     /// A collection of floats
-    FloatCollection,
+    Float,
 }
 
 
@@ -34,19 +34,19 @@ pub enum CollectionType {
 #[derive(Clone, Debug)]
 pub enum StorageValue {
     /// Represents a key that exists but has no information
-    NullValue,
+    Null,
     /// A boolean value
-    BoolValue(bool),
+    Bool(bool),
     /// A single string
-    StringValue(String),
+    String(String),
     /// An integer
-    IntValue(Int),
+    Int(Int),
     /// A float
-    FloatValue(Float),
+    Float(Float),
     /// A vector
-    VectorValue(StorageVector),
+    Vector(StorageVector),
     /// A map
-    MapValue(StorageMap),
+    Map(StorageMap),
 }
 
 impl Hash for StorageValue {
@@ -58,8 +58,8 @@ impl Hash for StorageValue {
         H: Hasher
     {
         match self {
-            StorageValue::StringValue(value) => value.hash(state),
-            StorageValue::IntValue(value) => value.hash(state),
+            StorageValue::String(value) => (*value).hash(state),
+            StorageValue::Int(value) => (*value).hash(state),
             _ => unimplemented!("Hash only implemented for StorageValues IntValue and FloatValue."),
         };
     }
@@ -70,22 +70,22 @@ impl PartialEq for StorageValue {
     /// will return false.
     fn eq(&self, other: &Self) -> bool {
         match self {
-            StorageValue::BoolValue(value) => {
-                if let StorageValue::BoolValue(other_value) = other {
+            StorageValue::Bool(value) => {
+                if let StorageValue::Bool(other_value) = other {
                     value == other_value
                 } else {
                     false
                 }
             },
-            StorageValue::StringValue(value) => {
-                if let StorageValue::StringValue(other_value) = other {
+            StorageValue::Int(value) => {
+                if let StorageValue::Int(other_value) = other {
                     value == other_value
                 } else {
                     false
                 }
             },
-            StorageValue::FloatValue(value) => {
-                if let StorageValue::FloatValue(other_value) = other {
+            StorageValue::String(value) => {
+                if let StorageValue::String(other_value) = other {
                     value == other_value
                 } else {
                     false
@@ -102,30 +102,30 @@ impl Eq for StorageValue {}
 
 /// Check that a storage value matches the expected type
 fn validate_value(
-    value: &StorageValue, value_type: CollectionType
+    value: &StorageValue, collection_type: CollectionType
 ) -> Result<(), ServerError> {
-    match value_type {
-        CollectionType::BoolCollection => {
+    match collection_type {
+        CollectionType::Bool => {
             match value {
-                StorageValue::IntValue(_) => Ok(()),
+                StorageValue::Bool(_) => Ok(()),
                 _ => Err(ServerError::TypeError("Expected an integer key".to_string())),
             }
         },
-        CollectionType::IntCollection => {
+        CollectionType::Int => {
             match value {
-                StorageValue::IntValue(_) => Ok(()),
+                StorageValue::Int(_) => Ok(()),
                 _ => Err(ServerError::TypeError("Expected an integer key".to_string())),
             }
         },
-        CollectionType::StringCollection => {
+        CollectionType::String => {
             match value {
-                StorageValue::StringValue(_) => Ok(()),
+                StorageValue::String(_) => Ok(()),
                 _ => Err(ServerError::TypeError("Expected an integer key".to_string())),
             }
         },
-        CollectionType::FloatCollection => {
+        CollectionType::Float => {
             match value {
-                StorageValue::FloatValue(_) => Ok(()),
+                StorageValue::Float(_) => Ok(()),
                 _ => Err(ServerError::TypeError("Expected an integer key".to_string())),
             }
         },
@@ -136,15 +136,15 @@ fn validate_value(
 /// Check that a storage value matches the expected key type
 fn validate_key(key: &StorageValue, key_type: KeyType) -> Result<(), ServerError> {
     match key_type {
-        KeyType::IntKey => {
+        KeyType::Int => {
             match key {
-                StorageValue::IntValue(_) => Ok(()),
+                StorageValue::Int(_) => Ok(()),
                 _ => Err(ServerError::TypeError("Expected an integer key".to_string())),
             }
         },
-        KeyType::StringKey => {
+        KeyType::String => {
             match key {
-                StorageValue::StringValue(_) => Ok(()),
+                StorageValue::String(_) => Ok(()),
                 _ => Err(ServerError::TypeError("Expected a string key.".to_string()))
             }
         }
@@ -157,15 +157,15 @@ pub struct StorageVector {
     /// The raw vector to be accessed
     vector: Vec<StorageValue>,
     /// The type of data held in the vector
-    value_type: CollectionType
+    collection_type: CollectionType
 }
 
 
 
 impl StorageVector {
     /// Create a new vector holding some data type
-    pub fn new(value_type: CollectionType) -> StorageVector {
-        StorageVector{vector: vec![], value_type}
+    pub fn new(collection_type: CollectionType) -> StorageVector {
+        StorageVector{vector: vec![], collection_type}
     }
 
     /// Pop the last value off the vector and return it
@@ -196,7 +196,7 @@ impl StorageVector {
 
     /// Push a new value to the end of the vector
     pub fn push(&mut self, value: StorageValue) -> Result<(), ServerError> {
-        match validate_value(&value, self.value_type) {
+        match validate_value(&value, self.collection_type) {
             Ok(_) => (),
             Err(err) => return Err(err)
         };
@@ -206,7 +206,7 @@ impl StorageVector {
 
     /// Set the value at a given index
     pub fn set(&mut self, index: usize, value: StorageValue) -> Result<(), ServerError> {
-        match validate_value(&value, self.value_type) {
+        match validate_value(&value, self.collection_type) {
             Ok(_) => (),
             Err(err) => return Err(err)
         };
@@ -236,14 +236,14 @@ pub struct StorageMap {
     /// The type of key to be used
     key_type: KeyType,
     /// The type of data held in the map
-    value_type: CollectionType,    
+    collection_type: CollectionType,    
 }
 
 
 impl StorageMap {
     /// Create a new map with keys and data of the given types.
-    pub fn new(key_type: KeyType, value_type: CollectionType) -> StorageMap {
-        StorageMap{map: HashMap::new(), key_type, value_type}
+    pub fn new(key_type: KeyType, collection_type: CollectionType) -> StorageMap {
+        StorageMap{map: HashMap::new(), key_type, collection_type}
     }
 
     /// Get the value with the given key. 
@@ -287,7 +287,7 @@ impl StorageMap {
             Ok(_) => (),
             Err(err) => return Err(err),
         };
-        match validate_value(&value, self.value_type) {
+        match validate_value(&value, self.collection_type) {
             Ok(_) => (),
             Err(err) => return Err(err)
         };
@@ -386,44 +386,252 @@ pub trait Storage {
 
 #[cfg(test)]
 mod test {
-    use super::{*};
+    use super::*;
+    use std::collections::hash_map::DefaultHasher;
+
+    fn calculate_hash<T: Hash,>(t: &T) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        t.hash(&mut hasher);
+        hasher.finish()
+    }
 
     #[test]
-    fn test_validate_key() {
+    fn test_hash_storage_value_int() {      
+        let _five_hash = calculate_hash(&StorageValue::Int(5));
+        let _five_hash_2 = calculate_hash(&StorageValue::Int(5));
+        let _three_hash = calculate_hash(&StorageValue::Int(3));
+        assert_eq!(_five_hash, _five_hash_2);
+        assert_ne!(_five_hash, _three_hash);
+    }
+
+    #[test]
+    fn test_hash_storage_value_string() {
+        let _str_hash = calculate_hash(&StorageValue::String("str".to_string()));
+        let _str_hash_2 = calculate_hash(&StorageValue::String("str".to_string()));
+        let _str2_hash = calculate_hash(&StorageValue::String("str2".to_string()));
+        assert_eq!(_str_hash, _str_hash_2);
+        assert_ne!(_str_hash, _str2_hash);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_hash_storage_value_other() {
+        calculate_hash(
+            &StorageValue::Vector(StorageVector::new(CollectionType::Bool))
+        );
+    }
+
+    #[test]
+    fn test_storage_value_equality() {
+        let x = StorageValue::Int(5);
+        let y = StorageValue::Int(6);
+        let z = StorageValue::Int(5);
+
+        assert_eq!(x == y, false);
+        assert_eq!(x == z, true);
+    }
+
+    #[test]
+    fn test_validate_key_with_good_inputs() {
+        assert!(matches!(validate_key(&StorageValue::Int(0), KeyType::Int), Ok(())));
         assert!(
             matches!(
-                validate_key(&StorageValue::IntValue(0), KeyType::IntKey),
+                validate_key(&StorageValue::String(String::from("str")), KeyType::String),
                 Ok(()),
             )
         );
+    }
+
+
+
+    #[test]
+    fn test_validate_key_with_mismatched_inputs() {
+        assert!(matches!(validate_key(&StorageValue::Int(0), KeyType::String), Err(_)));
         assert!(
-            matches!(
-                validate_key(&StorageValue::StringValue(String::from("str")), KeyType::StringKey),
-                Ok(()),
-            )
+            matches!(validate_key(&StorageValue::Bool(false), KeyType::String), Err(_))
         );
         assert!(
             matches!(
-                validate_key(&StorageValue::IntValue(0), KeyType::StringKey),
-                Err(_),
-            )
-        );
-        assert!(
-            matches!(
-                validate_key(&StorageValue::BoolValue(false), KeyType::StringKey),
-                Err(_),
-            )
-        );
-        assert!(
-            matches!(
-                validate_key(&StorageValue::StringValue(String::from("str")), KeyType::IntKey),
+                validate_key(&StorageValue::String(String::from("str")), KeyType::Int),
                 Err(_),
             )
         );
     }
 
     #[test]
-    fn test_validate_value() {
-        
+    fn test_validate_value_with_good_inputs() {
+        assert!(
+            matches!(validate_value(&StorageValue::Int(0), CollectionType::Int), Ok(()))
+        );
+        assert!(
+            matches!(
+                validate_value(&StorageValue::Float(0.), CollectionType::Float),
+                Ok(()),
+            )
+        );
+        assert!(
+            matches!(
+                validate_value(
+                    &StorageValue::String("str".to_string()),
+                    CollectionType::String,
+                ),
+                Ok(())
+            )
+        );
+        assert!(
+            matches!(
+                validate_value(&StorageValue::Bool(true), CollectionType::Bool),
+                Ok(()),
+            )
+        );
+
     }
+
+    #[test]
+    fn test_validate_value_with_bad_inputs() {
+        assert!(
+            matches!(validate_value(&StorageValue::Int(0), CollectionType::Bool), Err(_))
+        );
+        assert!(
+            matches!(validate_value(&StorageValue::Float(0.), CollectionType::Int), Err(_))
+        );
+        assert!(
+            matches!(
+                validate_value(
+                    &StorageValue::String("str".to_string()),
+                    CollectionType::Float,
+                ),
+                Err(_)
+            )
+        );
+        assert!(
+            matches!(validate_value(&StorageValue::Bool(true), CollectionType::String), Err(_))
+        );
+    }
+
+    #[test]
+    fn test_vector_new() {
+        let vector = StorageVector::new(CollectionType::Int);
+        assert!(matches!(vector.collection_type, CollectionType::Int));
+        assert_eq!(vector.vector.len(), 0);
+    }
+
+    #[test]
+    fn test_vector_push() {
+        let mut vector = StorageVector::new(CollectionType::Bool);
+        vector.push(StorageValue::Bool(true)).unwrap();
+        vector.push(StorageValue::Bool(false)).unwrap();
+        assert_eq!(vector.vector.len(), 2);
+    }
+
+    #[test]
+    fn test_vector_push_with_bad_value() {
+        let mut vector = StorageVector::new(CollectionType::Bool);
+        let result = vector.push(StorageValue::Int(0));
+        assert!(matches!(result, Err(_)));
+    }
+
+    #[test]
+    fn test_vector_len() {
+        let mut vector = StorageVector::new(CollectionType::Int);
+        assert_eq!(vector.len(), 0);
+        vector.push(StorageValue::Int(0)).unwrap();
+        assert_eq!(vector.len(), 1);
+    }
+
+    #[test]
+    fn test_vector_pop() {
+        let mut vector = StorageVector::new(CollectionType::Int);
+        vector.push(StorageValue::Int(5)).unwrap();
+        vector.push(StorageValue::Int(8)).unwrap();
+        assert_eq!(vector.len(), 2);
+        assert!(matches!(vector.pop(), Some(StorageValue::Int(8))));
+        assert!(matches!(vector.pop(), Some(StorageValue::Int(5))));
+        assert!(matches!(vector.pop(), None));
+    }
+
+    #[test]
+    fn test_vector_get() {
+        let mut vector = StorageVector::new(CollectionType::String);
+        vector.push(StorageValue::String("hello".to_string())).unwrap();
+        vector.push(StorageValue::String("hi".to_string())).unwrap();
+        let _element_0 = StorageValue::String("hello".to_string());
+        let _element_1 = StorageValue::String("hi".to_string());
+        assert!(matches!(vector.get(0).unwrap(), _element_0));
+        assert!(matches!(vector.get(1).unwrap(), _element_1));
+        assert!(matches!(vector.get(2), Err(ServerError::IndexError(_))));
+    }
+
+    #[test]
+    fn test_vector_set() {
+        let mut vector = StorageVector::new(CollectionType::Int);
+        vector.push(StorageValue::Int(1)).unwrap();
+        vector.push(StorageValue::Int(4)).unwrap();
+        vector.push(StorageValue::Int(3)).unwrap();
+
+        vector.set(1, StorageValue::Int(8)).unwrap();
+        assert!(matches!(vector.get(0).unwrap(), StorageValue::Int(1)));
+        assert!(matches!(vector.get(1).unwrap(), StorageValue::Int(8)));
+        assert!(matches!(vector.get(2).unwrap(), StorageValue::Int(3)));
+        assert!(matches!(vector.get(3), Err(ServerError::IndexError(_))));
+    }
+
+    #[test]
+    fn test_map_new() {
+        let map = StorageMap::new(KeyType::Int, CollectionType::Float);
+        assert_eq!(map.map.len(), 0);
+        assert!(matches!(map.key_type, KeyType::Int));
+        assert!(matches!(map.collection_type, CollectionType::Float));
+    }
+
+    #[test]
+    fn test_map_set() {
+        let mut map = StorageMap::new(KeyType::Int, CollectionType::Bool);
+        map.set(StorageValue::Int(5), StorageValue::Bool(true)).unwrap();
+        assert_eq!(map.map.len(), 1);
+        assert!(matches!(map.map.get(&StorageValue::Int(5)).unwrap(), StorageValue::Bool(true)));
+    }
+
+    #[test]
+    fn test_map_get() {
+        let mut map = StorageMap::new(KeyType::String, CollectionType::String);
+        map.set(
+            StorageValue::String("key".to_string()),
+            StorageValue::String("value".to_string()),
+        ).unwrap();
+        let _expected_string = StorageValue::String("value".to_string());
+        assert!(
+            matches!(
+                map.get(&StorageValue::String("key".to_string())).unwrap(),
+                _expected_string,
+            )
+        );
+        assert!(
+            matches!(
+                map.get(&StorageValue::String("key2".to_string())),
+                Err(ServerError::IndexError(_)),
+            )
+        );
+    }
+
+    #[test]
+    fn test_map_len() {
+        let mut map = StorageMap::new(KeyType::Int, CollectionType::Bool);
+        map.set(StorageValue::Int(5), StorageValue::Bool(true)).unwrap();
+        assert_eq!(map.len(), 1);
+        map.set(StorageValue::Int(55), StorageValue::Bool(true)).unwrap();
+        assert_eq!(map.len(), 2);
+    }
+
+    #[test]
+    fn test_map_contains_key() {
+
+    }
+
+    #[test]
+    fn test_map_delete() {
+
+    }
+
+
 }

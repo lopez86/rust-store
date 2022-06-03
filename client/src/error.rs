@@ -1,4 +1,5 @@
 /// Defines the basic error types that can be encountered.
+#[derive(Debug, Clone)]
 pub enum ServerError {
     /// An error around key access - missing key or filled key
     KeyError(String),

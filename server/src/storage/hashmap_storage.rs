@@ -145,3 +145,9 @@ impl Storage for HashMapStorage {
         Ok(self.storage.contains_key(key))
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+
+}

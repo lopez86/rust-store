@@ -243,3 +243,9 @@ impl Iterator for Tokenizer {
         }
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+}
