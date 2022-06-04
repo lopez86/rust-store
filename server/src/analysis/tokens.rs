@@ -40,6 +40,7 @@ pub fn get_word_to_token_map() -> HashMap<String, Token> {
 
 
 /// A token with some extra annotations needed for error handling
+#[derive(Clone, Debug, PartialEq)]
 pub struct AnnotatedToken {
     /// The token to process
     pub token: Token,
@@ -51,7 +52,7 @@ pub struct AnnotatedToken {
 
 
 /// Basic tokens that a command might include
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Token {
     /// Get a value
     Get,

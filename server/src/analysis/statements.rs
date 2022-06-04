@@ -9,7 +9,7 @@ type Lifetime = u64;
 
 
 /// Statement
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Statement {
     /// Get a value
     Get(StorageKey),

@@ -42,7 +42,7 @@ impl Tokenizer {
     }
 
     /// Scan the text of a command for characters
-    pub fn scan(&mut self) -> Result<Vec<AnnotatedToken>, ServerError> {
+    pub fn tokenize(&mut self) -> Result<Vec<AnnotatedToken>, ServerError> {
         let mut tokens: Vec<AnnotatedToken> = vec![];
         for maybe_token in self {
             match maybe_token {
@@ -57,8 +57,12 @@ impl Tokenizer {
 
     /// Retrieve the next token
     fn get_next_token(&mut self) -> Result<Token, ServerError> {
+        while self.view().is_whitespace() {
+            self.advance();
+        }
         self.token_start_index = self.current_index;
         let next_char = self.view();
+        
         let next_token = if next_char == ';' {
             self.advance();
             Ok(Token::Semicolon)
@@ -115,7 +119,7 @@ impl Tokenizer {
             if self.is_at_end() {
                 break;
             }
-            let next_char = self.advance();
+            let next_char = self.view();
             if is_valid_literal_end_char(next_char) {
                 break;
             }
@@ -123,6 +127,7 @@ impl Tokenizer {
                 is_float = true;
             }
             char_vec.push(next_char);
+            self.advance();
         }
         let token_string: String = char_vec.into_iter().collect();
         if is_float {
@@ -166,7 +171,9 @@ impl Tokenizer {
             }
             if next_char == '\\' {
                 if self.is_at_end() {
-                    return Err(ServerError::TokenizationError("Unterminated string found.".to_string()));
+                    return Err(
+                        ServerError::TokenizationError("Unterminated string found.".to_string())
+                    );
                 }
                 let escape_char = self.advance();
                 match escape_char {
@@ -184,6 +191,13 @@ impl Tokenizer {
                 char_vec.push(next_char);
             }
         }
+        if !is_valid_literal_end_char(self.view()) {
+            return Err(
+                ServerError::TokenizationError(
+                    "Invalid character found at the end of a string.".to_string()
+                )
+            )
+        }
         let token_string: String = char_vec.into_iter().collect();
         Ok(Token::StringValue(Box::new(token_string)))
     }
@@ -195,12 +209,13 @@ impl Tokenizer {
             if self.is_at_end() {
                 break;
             }
-            let next_char = self.advance();
+            let next_char = self.view();
             if is_valid_literal_end_char(next_char) {
                 break;
             } else if is_identifier_char(next_char) {
+                self.advance();
                 char_vec.push(next_char)
-            } else {
+           } else {
                 return Err(
                     ServerError::TokenizationError(
                         format!("'{}' is an invalid identifier character.", next_char)
@@ -235,7 +250,7 @@ impl Iterator for Tokenizer {
                         token,
                         position: self.token_start_index,
                         lexeme: self.command[
-                            self.token_start_index..self.current_index
+                            self.token_start_index.. self.current_index
                         ].iter().collect(),
                     }
                 )
@@ -248,6 +263,7 @@ impl Iterator for Tokenizer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::iter::zip;
 
     #[test]
     fn test_is_identifier_start_char() {
@@ -281,5 +297,165 @@ mod tests {
         assert!(!is_valid_literal_end_char('B'));
         assert!(!is_valid_literal_end_char('"'));
         assert!(!is_valid_literal_end_char('!'));
+    }
+
+    #[test]
+    fn test_tokenizer_simple_query() {
+        let mut tokenizer = Tokenizer::new("set x 1");
+        let tokens = tokenizer.tokenize().unwrap();
+        let expected_tokens = vec![
+            AnnotatedToken{token: Token::Set, position: 0, lexeme: "set".to_string()},
+            AnnotatedToken{
+                token: Token::Identifier(Box::new("x".to_string())),
+                position: 4,
+                lexeme: "x".to_string()
+            },
+            AnnotatedToken{token: Token::Integer(1), position: 6, lexeme: "1".to_string()},
+        ];
+        assert_eq!(3, tokens.len());
+        for (expected_token, token) in zip(expected_tokens, tokens) {
+            assert_eq!(expected_token, token);
+        }
+    }
+
+    #[test]
+    fn test_tokenizer_query_with_string() {
+        let mut tokenizer = Tokenizer::new("set x \"abc\";");
+        let tokens = tokenizer.tokenize().unwrap();
+        let expected_tokens = vec![
+            AnnotatedToken{token: Token::Set, position: 0, lexeme: "set".to_string()},
+            AnnotatedToken{
+                token: Token::Identifier(Box::new("x".to_string())),
+                position: 4,
+                lexeme: "x".to_string()
+            },
+            AnnotatedToken{
+                token: Token::StringValue(Box::new("abc".to_string())),
+                position: 6,
+                lexeme: "\"abc\"".to_string()
+            },
+            AnnotatedToken{token: Token::Semicolon, position: 11, lexeme: ";".to_string()},
+        ];
+        assert_eq!(4, tokens.len());
+        for (expected_token, token) in zip(expected_tokens, tokens) {
+            assert_eq!(expected_token, token);
+        }
+    }
+
+    
+    #[test]
+    fn test_tokenizer_query_with_float() {
+        let mut tokenizer = Tokenizer::new("set x 1.0;");
+        let tokens = tokenizer.tokenize().unwrap();
+        let expected_tokens = vec![
+            AnnotatedToken{token: Token::Set, position: 0, lexeme: "set".to_string()},
+            AnnotatedToken{
+                token: Token::Identifier(Box::new("x".to_string())),
+                position: 4,
+                lexeme: "x".to_string()
+            },
+            AnnotatedToken{
+                token: Token::Float(1.0),
+                position: 6,
+                lexeme: "1.0".to_string()
+            },
+            AnnotatedToken{token: Token::Semicolon, position: 9, lexeme: ";".to_string()},
+        ];
+        assert_eq!(4, tokens.len());
+        for (expected_token, token) in zip(expected_tokens, tokens) {
+            assert_eq!(expected_token, token);
+        }
+    }
+
+    #[test]
+    fn test_tokenizer_query_with_list() {
+        let mut tokenizer = Tokenizer::new("set x [1, 2, 3];");
+        let tokens = tokenizer.tokenize().unwrap();
+        let expected_tokens = vec![
+            AnnotatedToken{token: Token::Set, position: 0, lexeme: "set".to_string()},
+            AnnotatedToken{
+                token: Token::Identifier(Box::new("x".to_string())),
+                position: 4,
+                lexeme: "x".to_string()
+            },
+            AnnotatedToken{token: Token::LeftBracket, position: 6, lexeme: "[".to_string()},
+            AnnotatedToken{
+                token: Token::Integer(1),
+                position: 7,
+                lexeme: "1".to_string()
+            },
+            AnnotatedToken{token: Token::Comma, position: 8, lexeme: ",".to_string()},
+            AnnotatedToken{
+                token: Token::Integer(2),
+                position: 10,
+                lexeme: "2".to_string()
+            },
+            AnnotatedToken{token: Token::Comma, position: 11, lexeme: ",".to_string()},
+            AnnotatedToken{
+                token: Token::Integer(3),
+                position: 13,
+                lexeme: "3".to_string()
+            },
+            AnnotatedToken{token: Token::RightBracket, position: 14, lexeme: "]".to_string()},
+            AnnotatedToken{token: Token::Semicolon, position: 15, lexeme: ";".to_string()},
+        ];
+        assert_eq!(10, tokens.len());
+        for (expected_token, token) in zip(expected_tokens, tokens) {
+            assert_eq!(expected_token, token);
+        }
+    }
+
+    #[test]
+    fn test_tokenizer_query_with_map() {
+        let mut tokenizer = Tokenizer::new("set x int int {1:2 , 3 : 4};");
+        let tokens = tokenizer.tokenize().unwrap();
+        let expected_tokens = vec![
+            AnnotatedToken{token: Token::Set, position: 0, lexeme: "set".to_string()},
+            AnnotatedToken{
+                token: Token::Identifier(Box::new("x".to_string())),
+                position: 4,
+                lexeme: "x".to_string(),
+            },
+            AnnotatedToken{
+                token: Token::IntType,
+                position: 6,
+                lexeme: "int".to_string(),
+            },
+            AnnotatedToken{
+                token: Token::IntType,
+                position: 10,
+                lexeme: "int".to_string(),
+            },
+            AnnotatedToken{token: Token::LeftCurlyBracket, position: 14, lexeme: "{".to_string()},
+            AnnotatedToken{
+                token: Token::Integer(1),
+                position: 15,
+                lexeme: "1".to_string(),
+            },
+            AnnotatedToken{token: Token::Colon, position: 16, lexeme: ":".to_string()},
+            AnnotatedToken{
+                token: Token::Integer(2),
+                position: 17,
+                lexeme: "2".to_string(),
+            },
+            AnnotatedToken{token: Token::Comma, position: 19, lexeme: ",".to_string()},
+            AnnotatedToken{
+                token: Token::Integer(3),
+                position: 21,
+                lexeme: "3".to_string(),
+            },
+            AnnotatedToken{token: Token::Colon, position: 23, lexeme: ":".to_string()},
+            AnnotatedToken{
+                token: Token::Integer(4),
+                position: 25,
+                lexeme: "4".to_string(),
+            },
+            AnnotatedToken{token: Token::RightCurlyBracket, position: 26, lexeme: "}".to_string()},
+            AnnotatedToken{token: Token::Semicolon, position: 27, lexeme: ";".to_string()},
+        ];
+        assert_eq!(14, tokens.len());
+        for (expected_token, token) in zip(expected_tokens, tokens) {
+            assert_eq!(expected_token, token);
+        }
     }
 }
