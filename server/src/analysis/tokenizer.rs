@@ -14,7 +14,7 @@ fn is_identifier_char(c: char) -> bool {
 
 /// See if a character is valid to directly append to the end of a literal value
 fn is_valid_literal_end_char(c: char) -> bool {
-    c.is_whitespace() | ";:,".contains(c)
+    c.is_whitespace() | ";:,]}".contains(c)
 }
 
 /// The basic scanner only implements the most basic operations like get and set.
@@ -248,4 +248,38 @@ impl Iterator for Tokenizer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_is_identifier_start_char() {
+        assert!(is_identifier_start_char('_'));
+        assert!(is_identifier_start_char('a'));
+        assert!(is_identifier_start_char('A'));
+        assert!(!is_identifier_start_char('1'));
+        assert!(!is_identifier_start_char('#'));
+    }
+
+    #[test]
+    fn test_is_identifier_char() {
+        assert!(is_identifier_char('_'));
+        assert!(is_identifier_char('a'));
+        assert!(is_identifier_char('A'));
+        assert!(is_identifier_char('1'));
+        assert!(!is_identifier_char('#'));
+    }
+
+    #[test]
+    fn test_is_valid_literal_end_char() {
+        assert!(is_valid_literal_end_char(';'));
+        assert!(is_valid_literal_end_char(','));
+        assert!(is_valid_literal_end_char(']'));
+        assert!(is_valid_literal_end_char('}'));
+        assert!(is_valid_literal_end_char(':'));
+        assert!(is_valid_literal_end_char(' '));
+        assert!(is_valid_literal_end_char('\n'));
+        assert!(!is_valid_literal_end_char('a'));
+        assert!(!is_valid_literal_end_char('2'));
+        assert!(!is_valid_literal_end_char('B'));
+        assert!(!is_valid_literal_end_char('"'));
+        assert!(!is_valid_literal_end_char('!'));
+    }
 }
