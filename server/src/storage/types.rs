@@ -366,17 +366,17 @@ pub trait Storage {
     /// Sets the value for a key.
     fn set(&mut self, key: &str, value: StorageElement) -> Result<(), ServerError>;
     /// Gets a random key.
-    fn get_random_key(&self) -> StorageKey;
+    fn get_random_key(&self) -> Option<&StorageKey>;
     /// Check if a key exists in the database.
-    fn exists(&self, key: &str) -> Result<bool, ServerError>;
+    fn contains_key(&self, key: &str) -> Result<bool, ServerError>;
     /// Get a value if it exists or else return None
     fn get_if_exists(&self, key: &str) -> Result<Option<StorageElement>, ServerError>;
-    /// Set a value only if the key does not exist, else throw an error
-    fn set_if_not_exists(&mut self, key: &str, value: StorageElement) -> Result<(), ServerError>;
+    /// Set a value only if the key does not exist
+    fn set_if_not_exists(&mut self, key: &str, value: StorageElement) -> Result<bool, ServerError>;
     /// Update the value for an existing key.
     fn update(&mut self, key: &str, value: StorageElement) -> Result<(), ServerError>;
     /// Delete the contents of an existing key.
-    fn delete(&mut self, key: &str) -> Result<(), ServerError>;
+    fn delete(&mut self, key: &str) -> Result<bool, ServerError>;
     /// Update the expiration time of an existing key.
     fn update_expiration(
         &mut self, key: &str, expiration: Option<SystemTime>
@@ -625,11 +625,20 @@ mod test {
 
     #[test]
     fn test_map_contains_key() {
-
+        let mut map = StorageMap::new(KeyType::String, CollectionType::Float);
+        map.set(StorageValue::String("key".to_string()), StorageValue::Float(1.5)).unwrap();
+        assert_eq!(map.contains_key(&StorageValue::String("key".to_string())).unwrap(), true);
+        assert_eq!(map.contains_key(&StorageValue::String("key2".to_string())).unwrap(), false);
+        assert!(matches!(map.contains_key(&StorageValue::Int(0)), Err(ServerError::TypeError(_))));
     }
 
     #[test]
     fn test_map_delete() {
+        let mut map = StorageMap::new(KeyType::String, CollectionType::Float);
+        map.set(StorageValue::String("key".to_string()), StorageValue::Float(1.5)).unwrap();
+        assert_eq!(map.delete(&StorageValue::String("key".to_string())).unwrap(), true);
+        assert_eq!(map.delete(&StorageValue::String("key".to_string())).unwrap(), false);
+        assert!(matches!(map.delete(&StorageValue::Int(0)), Err(ServerError::TypeError(_))));
 
     }
 
