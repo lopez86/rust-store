@@ -318,7 +318,7 @@ impl StorageMap {
 
 
 /// A storage element includes the key, the value, and an optional expiration time
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct StorageElement {
     /// The key used to retrieve the value
     pub key: StorageKey,

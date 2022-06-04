@@ -6,11 +6,8 @@ use rand;
 use rand::RngCore;
 
 use crate::storage::types::{
-    CollectionType,
     Storage,
     StorageElement,
-    StorageValue,
-    StorageVector,
     make_key_error,
 };
 use client::data_types::StorageKey;
@@ -18,6 +15,7 @@ use client::error::ServerError;
 
 
 /// Container for an entry in the hash map.
+#[derive(Debug)]
 struct HashMapContainer {
     /// The data for an entry in the database
     element: StorageElement,
@@ -48,7 +46,7 @@ impl Storage for HashMapStorage {
     /// Get a value if it exists.
     fn get_if_exists(&self, key: &str) -> Result<Option<StorageElement>, ServerError> {
         match self.storage.get(key) {
-            Some(value) if value.element.is_expired() => Err(make_key_error(key)),
+            Some(value) if value.element.is_expired() => Ok(None),
             Some(value) => Ok(Some(value.element.clone())),
             None => Ok(None),
         }
@@ -97,13 +95,16 @@ impl Storage for HashMapStorage {
         &mut self, key: &str
     ) -> Result<bool, ServerError> {
         let value = self.storage.remove(key);
+        println!("{:?}", value);
         let result = if let Some(container) = value {
             let index = container.key_index;
             let last_key = self.keys[self.keys.len() - 1].clone();
             // O(1) removal but does not preserve order - swap + pop from end
             self.keys.swap_remove(index);
-            let moved_container = self.storage.get_mut(&last_key).unwrap();
-            moved_container.key_index = index;
+            if last_key != key {  // i.e. we deleted the final element
+                let moved_container = self.storage.get_mut(&last_key).unwrap();
+                moved_container.key_index = index;
+            }
             if container.element.is_expired() {
                 Ok(false)
             } else {
@@ -119,10 +120,11 @@ impl Storage for HashMapStorage {
     fn update(
         &mut self, key: &str, value: StorageElement
     ) -> Result<(), ServerError> {
-        if !self.storage.contains_key(key) {
-            return Err(make_key_error(key))
+        match self.contains_key(key) {
+            Ok(false) => Err(make_key_error(key)),
+            Ok(true) => self.set(key, value),
+            Err(err) => Err(err),
         }
-        self.set(key, value)
     }
 
     /// Set a value if it doesn't already exist.
@@ -139,7 +141,6 @@ impl Storage for HashMapStorage {
         }
     }
 
-
     /// Set a value.
     fn set(
         &mut self, key: &str, value: StorageElement
@@ -147,7 +148,7 @@ impl Storage for HashMapStorage {
         let index = match self.storage.get(key) {
             None => {
                 self.keys.push(String::from(key));
-                self.keys.len()
+                self.keys.len() - 1
             } 
             Some(value) => value.key_index
         };
@@ -163,14 +164,22 @@ impl Storage for HashMapStorage {
 
     /// Check if a key exists in the database.
     fn contains_key(&self, key: &str) -> Result<bool, ServerError> {
-        Ok(self.storage.contains_key(key))
+        match self.storage.get(key) {
+            Some(container) => {
+                Ok(!container.element.is_expired())
+            },
+            None => Ok(false)
+        }
     }
 }
 
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
+    use crate::storage::types::{CollectionType, StorageValue, StorageVector};
 
     #[test]
     fn test_new() {
@@ -251,26 +260,127 @@ mod tests {
 
     #[test]
     fn test_get_if_exists() {
-
+        let mut storage = HashMapStorage::new();
+        let element1 = StorageElement {
+            key: "key1".to_string(),
+            value: StorageValue::Int(13),
+            expiration: None,
+        };
+        storage.set("key1", element1).unwrap();
+        assert!(matches!(storage.get_if_exists("key1").unwrap().unwrap().value, StorageValue::Int(13)));
+        assert!(matches!(storage.get_if_exists("unknown_key").unwrap(), None));
     }
 
     #[test]
     fn test_contains_key() {
-
+        let mut storage = HashMapStorage::new();
+        let element1 = StorageElement {
+            key: "key1".to_string(),
+            value: StorageValue::Int(13),
+            expiration: None,
+        };
+        storage.set("key1", element1).unwrap();
+        assert_eq!(storage.contains_key("key1").unwrap(), true);
+        assert_eq!(storage.contains_key("unknown_key").unwrap(), false);
     }
 
     #[test]
-    fn update() {
-
+    fn test_update() {
+        let mut storage = HashMapStorage::new();
+        let element1 = StorageElement {
+            key: "key1".to_string(),
+            value: StorageValue::Int(13),
+            expiration: None,
+        };
+        storage.set("key1", element1).unwrap();
+        let element2 = StorageElement {
+            key: "key1".to_string(),
+            value: StorageValue::Int(15),
+            expiration: None,
+        };
+        storage.update("key1", element2).unwrap();
+        assert!(matches!(storage.get("key1").unwrap().value, StorageValue::Int(15)));
     }
 
     #[test]
-    fn delete() {
-
+    fn test_delete() {
+        let mut storage = HashMapStorage::new();
+        let element1 = StorageElement {
+            key: "key1".to_string(),
+            value: StorageValue::Int(13),
+            expiration: None,
+        };
+        storage.set("key1", element1).unwrap();
+        let element2 = StorageElement {
+            key: "key2".to_string(),
+            value: StorageValue::Int(15),
+            expiration: None,
+        };
+        storage.set("key2", element2).unwrap();
+        assert_eq!(storage.delete("key2").unwrap(), true);
+        assert_eq!(storage.delete("key2").unwrap(), false);
+        assert_eq!(storage.contains_key("key1").unwrap(), true);
+        assert_eq!(storage.contains_key("key2").unwrap(), false);
     }
 
     #[test]
-    fn update_expiration() {
+    fn test_update_expiration() {
+        let mut storage = HashMapStorage::new();
+        let element1 = StorageElement {
+            key: "key1".to_string(),
+            value: StorageValue::Int(13),
+            expiration: None,
+        };
+        storage.set("key1", element1).unwrap();
+        let new_expiration = SystemTime::now() + Duration::from_secs(5000);
+        storage.update_expiration("key1", Some(new_expiration)).unwrap();
+        assert!(matches!(storage.get("key1").unwrap().expiration, Some(_)));
+        storage.update_expiration("key1", None).unwrap();
+        assert!(matches!(storage.get("key1").unwrap().expiration, None));
+        assert!(matches!(storage.update_expiration("bad_key", None), Err(ServerError::KeyError(_))));
+    }
 
+    #[test]
+    fn test_get_random_key() {
+        let mut storage = HashMapStorage::new();
+        assert!(matches!(storage.get_random_key(), None));
+        let element1 = StorageElement {
+            key: "key1".to_string(),
+            value: StorageValue::Int(13),
+            expiration: None,
+        };
+        storage.set("key1", element1).unwrap();
+        assert!(matches!(storage.get_random_key(), Some(_)))
+    }
+
+    #[test]
+    fn test_expired_key() {
+        let mut storage = HashMapStorage::new();
+        assert!(matches!(storage.get_random_key(), None));
+        // We'll allow setting an expired key
+        // Will be disallowed by the user API
+        let element1 = StorageElement {
+            key: "key1".to_string(),
+            value: StorageValue::Int(13),
+            expiration: Some(SystemTime::now() - Duration::from_secs(1)),
+        };
+        let element2 = StorageElement {
+            key: "key1".to_string(),
+            value: StorageValue::Int(13),
+            expiration: Some(SystemTime::now() + Duration::from_secs(500)),
+        };
+        let new_expiration = Some(SystemTime::now() + Duration::from_secs(500));
+        storage.set("key1", element1).unwrap();
+        assert!(matches!(storage.get_if_exists("key1").unwrap(), None));
+        assert!(matches!(storage.update("key1", element2), Err(ServerError::KeyError(_))));
+        assert!(
+            matches!(
+                storage.update_expiration("key1", new_expiration),
+                Err(ServerError::KeyError(_)),
+            )
+        );
+        assert_eq!(storage.storage.len(), 1);
+        assert_eq!(storage.delete("key1").unwrap(), false);
+        assert_eq!(storage.storage.len(), 0);
     }
 }
