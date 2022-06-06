@@ -3,8 +3,16 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::time::SystemTime;
 
-use client::data_types::{Int, Float, StorageKey};
-use client::error::ServerError;
+use crate::error::ServerError;
+
+
+/// Type alias for the key type
+pub type StorageKey = String;
+/// Type alias for internal floating point types
+pub type Float = f32;
+/// Type alias for internal integer types
+pub type Int = i64;
+
 
 
 /// Types of keys that can be used in a map
@@ -365,8 +373,8 @@ pub trait Storage {
     fn get(&self, key: &str) -> Result<StorageElement, ServerError>;
     /// Sets the value for a key.
     fn set(&mut self, key: &str, value: StorageElement) -> Result<(), ServerError>;
-    /// Gets a random key.
-    fn get_random_key(&self) -> Option<&StorageKey>;
+    /// Runs the policy on invalidating expired keys
+    fn invalidate_expired_keys(&mut self) -> Result<usize, ServerError>;
     /// Check if a key exists in the database.
     fn contains_key(&self, key: &str) -> Result<bool, ServerError>;
     /// Get a value if it exists or else return None
@@ -381,6 +389,12 @@ pub trait Storage {
     fn update_expiration(
         &mut self, key: &str, expiration: Option<SystemTime>
     ) -> Result<(), ServerError>;
+    /// Get the number of keys
+    fn len(&self) -> Result<usize, ServerError>;
+    /// Remove a key if it's expired
+    fn check_and_expire(&mut self, key: &str) -> Result<bool, ServerError>;
+    /// Get the number of expiring keys
+    fn expiring_keys_count(&self) -> Result<usize, ServerError>;
 }
 
 

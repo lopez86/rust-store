@@ -1,5 +1,5 @@
 use crate::analysis::tokens::{AnnotatedToken, Token, get_word_to_token_map};
-use client::error::ServerError;
+use crate::error::ServerError;
 
 
 /// See if a character can be used to start an identifier

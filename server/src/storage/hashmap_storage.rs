@@ -5,13 +5,13 @@ use std::time::SystemTime;
 use rand;
 use rand::RngCore;
 
-use crate::storage::types::{
+use crate::error::ServerError;
+use crate::storage::{
     Storage,
     StorageElement,
+    StorageKey,
     make_key_error,
 };
-use client::data_types::StorageKey;
-use client::error::ServerError;
 
 
 /// Container for an entry in the hash map.
@@ -20,7 +20,7 @@ struct HashMapContainer {
     /// The data for an entry in the database
     element: StorageElement,
     /// The location in the key vector for O(1) time deletion
-    key_index: usize,
+    key_index: Option<usize>,
 }
 
 
@@ -29,13 +29,36 @@ struct HashMapContainer {
 /// random access.
 pub struct HashMapStorage {
     storage: HashMap<StorageKey, HashMapContainer>,
-    keys: Vec<StorageKey>,
+    expiring_keys: Vec<StorageKey>,
 }
 
 impl HashMapStorage {
     /// Create a new storage container
     pub fn new() -> HashMapStorage {
-        HashMapStorage { storage: HashMap::new(), keys: vec![] }
+        HashMapStorage { storage: HashMap::new(), expiring_keys: vec![] }
+    }
+
+    fn invalidate_key_index(&mut self, index: usize) {
+        let removing_last = index == self.expiring_keys.len() - 1;
+        if !removing_last {
+            let moved_container = self.storage.get_mut(
+                &self.expiring_keys[self.expiring_keys.len() - 1]
+            ).unwrap();
+            moved_container.key_index = Some(index);
+        }
+        // O(1) removal but does not preserve order - swap + pop from end
+        self.expiring_keys.swap_remove(index);
+
+    }
+
+    /// Get a random key from the database.
+    fn get_random_key(&self) -> Option<&StorageKey> {
+        if self.expiring_keys.len() == 0 {
+            return None
+        }
+        let mut rng = rand::thread_rng();
+        let index = (rng.next_u64() as usize) % self.expiring_keys.len();
+        Some(&self.expiring_keys[index])
     }
 }
 
@@ -64,30 +87,48 @@ impl Storage for HashMapStorage {
     /// Update the expiration time of an entry.
     fn update_expiration(
         &mut self, key: &str, expiration: Option<SystemTime>
-    ) -> Result<(), ServerError> {
-        let old_container = self.storage.get_mut(key);
-        
-        let result = match old_container {
+    ) -> Result<(), ServerError> {        
+        let new_key_index = match self.storage.get(key) {
             Some(container) if container.element.is_expired() => {
-                Err(make_key_error(key))
+                return Err(make_key_error(key))
             },
             Some(container) => {
-                container.element.expiration = expiration;
-                Ok(())
+                if let Some(_) = container.element.expiration {
+                    // Need to remove from expiring keys
+                    if let None = expiration {
+                        let index = container.key_index.unwrap();
+                        self.invalidate_key_index(index);
+                        None
+                    } else {
+                        container.key_index
+                    }
+                } else {
+                    // Need to add to expiring keys
+                    if let Some(_) = expiration {
+                        self.expiring_keys.push(key.to_string());
+                        Some(self.expiring_keys.len() - 1)
+                    } else {
+                        None
+                    }
+                }
             },
-            None => Err(make_key_error(key))
+            None => return Err(make_key_error(key))
         };
-        result
+        let container = self.storage.get_mut(key).unwrap();
+        container.element.expiration = expiration;
+        container.key_index = new_key_index;
+
+        Ok(())
     }
 
     /// Get a random key from the database.
-    fn get_random_key(&self) -> Option<&StorageKey> {
-        if self.keys.len() == 0 {
-            return None
+    fn invalidate_expired_keys(&mut self) -> Result<usize, ServerError> {
+        let key = self.get_random_key().unwrap().clone();
+        match self.check_and_expire(&key) {
+            Ok(true) => Ok(1),
+            Ok(false) => Ok(0),
+            Err(err) => Err(err),
         }
-        let mut rng = rand::thread_rng();
-        let index = (rng.next_u32() as usize) % self.keys.len();
-        Some(&self.keys[index])
     }
 
     /// Delete an entry from the database.
@@ -97,13 +138,9 @@ impl Storage for HashMapStorage {
         let value = self.storage.remove(key);
         println!("{:?}", value);
         let result = if let Some(container) = value {
-            let index = container.key_index;
-            let last_key = self.keys[self.keys.len() - 1].clone();
-            // O(1) removal but does not preserve order - swap + pop from end
-            self.keys.swap_remove(index);
-            if last_key != key {  // i.e. we deleted the final element
-                let moved_container = self.storage.get_mut(&last_key).unwrap();
-                moved_container.key_index = index;
+            if let Some(_) = container.element.expiration {
+                let index = container.key_index.unwrap();
+                self.invalidate_key_index(index);
             }
             if container.element.is_expired() {
                 Ok(false)
@@ -147,10 +184,33 @@ impl Storage for HashMapStorage {
     ) -> Result<(), ServerError> {
         let index = match self.storage.get(key) {
             None => {
-                self.keys.push(String::from(key));
-                self.keys.len() - 1
+                if let None = value.expiration {
+                    None
+                } else {
+                    self.expiring_keys.push(String::from(key));
+                    Some(self.expiring_keys.len() - 1)
+                }
             } 
-            Some(value) => value.key_index
+            Some(container) => {
+                match container.key_index {
+                    None => {
+                        if let None = value.expiration {
+                            None
+                        } else {
+                            self.expiring_keys.push(String::from(key));
+                            Some(self.expiring_keys.len() - 1)
+                        }
+                    },
+                    Some(key_index) => {
+                        if let None = value.expiration {
+                            self.invalidate_key_index(key_index);
+                            None
+                        } else {
+                            Some(key_index)
+                        }
+                    }
+                }
+            }
         };
         self.storage.insert(
             StorageKey::from(key),
@@ -171,6 +231,31 @@ impl Storage for HashMapStorage {
             None => Ok(false)
         }
     }
+
+    /// Get the number of keys
+    fn len(&self) -> Result<usize, ServerError> {
+        Ok(self.storage.len())
+    }
+
+    /// Check if a key is expired and remove if so
+    fn check_and_expire(&mut self, key: &str) -> Result<bool, ServerError> {
+        let item = match self.storage.get(key) {
+            Some(container) => container,
+            None => return Err(ServerError::KeyError(format!("Key {} not found.", key))),
+        };
+        if item.element.is_expired() {
+            match self.storage.remove(key) {
+                _ => Ok(true),
+            }
+        } else {
+            Ok(false)
+        }
+    }
+
+    /// Get the number of expiring keys
+    fn expiring_keys_count(&self) -> Result<usize, ServerError> {
+        Ok(self.expiring_keys.len())
+    }
 }
 
 
@@ -185,7 +270,7 @@ mod tests {
     fn test_new() {
         let map = HashMapStorage::new();
         assert_eq!(map.storage.len(), 0);
-        assert_eq!(map.keys.len(), 0);
+        assert_eq!(map.expiring_keys.len(), 0);
     }
 
     #[test]

@@ -1,5 +1,5 @@
 /// Contains generic types for backend storage
-mod types;
+pub mod types;
 
 pub use self::types::{*};
 

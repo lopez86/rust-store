@@ -1,8 +1,6 @@
 use std::fmt::Debug;
 
-use client::data_types::StorageKey;
-
-use crate::storage::StorageValue;
+use crate::storage::{StorageKey, StorageValue};
 
 /// Lifetime in seconds of a 
 type Lifetime = u64;
@@ -48,7 +46,13 @@ pub enum Statement {
     /// Get the number of elements in a map
     MapLength(StorageKey),
     /// See if an element exists in a map
-    MapExists(StorageKey),
+    MapExists(StorageKey, StorageValue),
     /// Get the type of some value
     ValueType(StorageKey),
+    /// Try to expire keys according to the storage object's policy
+    ExpireKeys,
+    /// Shut the server down
+    Shutdown,
+    /// Null statement
+    Null,
 }

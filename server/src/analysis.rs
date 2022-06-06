@@ -6,8 +6,11 @@ pub mod tokens;
 pub mod tokenizer;
 /// Commands that can be run
 pub mod statements;
+/// Executes statements
+pub mod interpreter;
 
 pub use tokenizer::Tokenizer;
 pub use tokens::{AnnotatedToken, Token};
 pub use parser::Parser;
 pub use statements::Statement;
+pub use interpreter::{*};

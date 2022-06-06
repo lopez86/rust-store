@@ -1,8 +1,9 @@
 use std::iter::Iterator;
 
-use client::error::ServerError;
-
 use crate::analysis::{AnnotatedToken, Statement, Token, Tokenizer};
+use crate::error::ServerError;
+use crate::storage::{StorageKey, StorageValue};
+
 
 /// Parsing tokens into statements
 pub struct Parser {
@@ -12,6 +13,54 @@ pub struct Parser {
     current_token: usize,
     /// Has an error been found in parsing
     error_encountered: bool,
+}
+
+fn get_name_from_token(token: &AnnotatedToken) -> Result<String, ServerError> {
+    let map_name = match &token.token {
+        Token::Identifier(identifier) => identifier,
+        _ => return Err(
+            ServerError::ParseError(
+                format!("Expected an identifier. Got {} at {}", token.lexeme, token.position)
+            )
+        ),
+    };
+    Ok(*map_name.clone())
+}
+
+fn get_key_from_token(token: &AnnotatedToken) -> Result<StorageValue, ServerError> {
+    match &token.token {
+        Token::Integer(value) => Ok(StorageValue::Int(*value)),
+        Token::StringValue(value) => Ok(StorageValue::String(*value.clone())),
+        _ => Err(
+            ServerError::ParseError(
+                format!("Expected a valid map key. Got {} at {}", token.lexeme, token.position)
+            )
+        )
+    }
+}
+
+fn get_index_from_token(token: &AnnotatedToken) -> Result<usize, ServerError> {
+    match token.token {
+        Token::Integer(value) => {
+            match value.try_into() {
+                Ok(value) => Ok(value),
+                Err(_) => Err(
+                    ServerError::ParseError(
+                        format!(
+                            "Expected a valid vector index. Got {} at {}",
+                            token.lexeme,
+                            token.position,
+                        )
+                    )
+                )
+            }
+        },
+        _ => Err(
+            ServerError::ParseError(
+                format!("Expected a valid vector index. Got {} at {}", token.lexeme, token.position)
+            )
+        )
+    }
 }
 
 impl Parser {
@@ -111,36 +160,81 @@ impl Parser {
         }
     }
 
+    fn process_identifier_statement<F>(&mut self, f: F) -> Result<Statement, ServerError>
+    where F: Fn(&String) -> Statement
+    {
+        let next_token = self.advance();
+        
+        match &next_token.token {
+            Token::Identifier(identifier) => {
+                Ok(f(&*identifier))
+            },
+            _ => Err(
+                ServerError::ParseError(
+                    format!(
+                        "Expected an identifier. Got {} at {}",
+                        next_token.lexeme,
+                        next_token.position
+                    )
+                )
+            ),
+        }
+    }
+
+    fn process_map_identifier_statement<F>(&mut self, f: F) -> Result<Statement, ServerError>
+    where F: Fn(&StorageKey, StorageValue) -> Statement
+    {
+        let next_token = self.advance();
+        let map_name = match get_name_from_token(next_token) {
+            Ok(name) => name,
+            Err(err) => return Err(err),
+        };
+        let key = match get_key_from_token(next_token) {
+            Ok(key) => key,
+            Err(err) => return Err(err),
+        };
+        Ok(f(&map_name, key))
+    }   
+
     fn delete(&mut self) -> Result<Statement, ServerError> {
-        Err(ServerError::ParseError("Feature not implemented.".to_string()))
+        self.process_identifier_statement(|x| Statement::Delete(x.clone()))
     }
 
     fn exists(&mut self) -> Result<Statement, ServerError> {
-        Err(ServerError::ParseError("Feature not implemented.".to_string()))
+        self.process_identifier_statement(|x| Statement::Exists(x.clone()))
     }
 
     fn get(&mut self) -> Result<Statement, ServerError> {
-        Err(ServerError::ParseError("Feature not implemented.".to_string()))
+        self.process_identifier_statement(|x| Statement::Get(x.clone()))   
     }
 
     fn get_or_none(&mut self) -> Result<Statement, ServerError> {
-        Err(ServerError::ParseError("Feature not implemented.".to_string()))
+        self.process_identifier_statement(
+            |x| Statement::GetIfExists(x.clone()))   
     }
 
     fn map_delete(&mut self) -> Result<Statement, ServerError> {
-        Err(ServerError::ParseError("Feature not implemented.".to_string()))
+        self.process_map_identifier_statement(
+            |x, y| Statement::MapDelete(x.clone(), y)
+        )
     }
 
     fn map_exists(&mut self) -> Result<Statement, ServerError> {
-        Err(ServerError::ParseError("Feature not implemented.".to_string()))
+        self.process_map_identifier_statement(
+            |x, y| Statement::MapExists(x.clone(), y)
+        )
     }
 
     fn map_get(&mut self) -> Result<Statement, ServerError> {
-        Err(ServerError::ParseError("Feature not implemented.".to_string()))
+        self.process_map_identifier_statement(
+            |x, y| Statement::MapGet(x.clone(), y)
+        )
     }
 
     fn map_length(&mut self) -> Result<Statement, ServerError> {
-        Err(ServerError::ParseError("Feature not implemented.".to_string()))
+        self.process_identifier_statement(
+            |x| Statement::MapLength(x.clone())
+        )
     }
 
     fn map_set(&mut self) -> Result<Statement, ServerError> {
@@ -164,7 +258,9 @@ impl Parser {
     }
 
     fn value_type(&mut self) -> Result<Statement, ServerError> {
-        Err(ServerError::ParseError("Feature not implemented.".to_string()))
+        self.process_identifier_statement(
+            |x| Statement::ValueType(x.clone())
+        )
     }
 
     fn vector_append(&mut self) -> Result<Statement, ServerError> {
@@ -176,11 +272,14 @@ impl Parser {
     }
 
     fn vector_length(&mut self) -> Result<Statement, ServerError> {
-        Err(ServerError::ParseError("Feature not implemented.".to_string()))
-    }
+        self.process_identifier_statement(
+            |x| Statement::VectorLength(x.clone())
+        )    }
 
     fn vector_pop(&mut self) -> Result<Statement, ServerError> {
-        Err(ServerError::ParseError("Feature not implemented.".to_string()))
+        self.process_identifier_statement(
+            |x| Statement::VectorPop(x.clone())
+        )
     }
 
     fn vector_set(&mut self) -> Result<Statement, ServerError> {
