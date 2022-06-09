@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::time::SystemTime;
 
+use serde::{Deserialize, Serialize};
+
 use crate::error::ServerError;
 
 
@@ -16,7 +18,7 @@ pub type Int = i64;
 
 
 /// Types of keys that can be used in a map
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub enum KeyType{
     /// A string
     String,
@@ -25,7 +27,7 @@ pub enum KeyType{
 }
 
 /// Types of values that can be saved in collections (Maps and Vectors)
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub enum CollectionType {
     /// A collection of booleans
     Bool,
@@ -39,7 +41,7 @@ pub enum CollectionType {
 
 
 /// The types supported by the database
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum StorageValue {
     /// Represents a key that exists but has no information
     Null,
@@ -160,7 +162,7 @@ fn validate_key(key: &StorageValue, key_type: KeyType) -> Result<(), ServerError
 }
 
 /// A vector object that can be saved in the key value store
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct StorageVector {
     /// The raw vector to be accessed
     vector: Vec<StorageValue>,
@@ -237,7 +239,7 @@ impl StorageVector {
 
 
 /// A map object that can be saved in the key value store
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct StorageMap {
     /// The raw map to be accessed
     map: HashMap<StorageValue, StorageValue>,

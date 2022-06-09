@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
 
-use crate::analysis::{Interpreter, InterpreterRequest, InterpreterResponse, Privileges, Statement};
+use crate::analysis::{Interpreter, InterpreterRequest, InterpreterResponse};
 use crate::error::ServerError;
 use crate::storage::Storage;
 use crate::io::stream::StreamSender;
@@ -11,9 +11,9 @@ use crate::io::stream::StreamSender;
 /// A request to send to the executor
 pub struct ExecutorRequest {
     /// The interpreter request
-    pub request: Result<InterpreterRequest, ServerError>,
+    pub request: InterpreterRequest,
     /// The channel to send a response
-    pub stream_sender: Option<Box<dyn StreamSender>>,
+    pub stream_sender: Option<Box<dyn StreamSender + Send>>,
 }
 
 /// The response to send back to the requesting channel
@@ -21,7 +21,7 @@ pub struct ExecutorResponse {
     /// The result from the interpreter
     pub response: Result<InterpreterResponse, ServerError>,
     /// The object to process and send back responses
-    pub stream_sender: Option<Box<dyn StreamSender>>,
+    pub stream_sender: Option<Box<dyn StreamSender + Send>>,
 }
 
 /// An executor sends requests to the interpreter from an open channel and returns responses.
@@ -40,26 +40,14 @@ impl<S: Storage> Executor<S> {
     /// Execute a request
     fn execute(&mut self, request: ExecutorRequest) -> bool {
         let ExecutorRequest{request, stream_sender} = request;
-        if let Err(error) = request {
-            let response = ExecutorResponse {
-                response: Err(error),
-                stream_sender: stream_sender
-            };
-            self.send_response(response);
-            return true
-        }
-        let request = request.unwrap();
-
-        if (request.statement == Statement::Shutdown) & (request.privileges == Privileges::Admin) {
-            self.shutdown_workers_flag.swap(true, Ordering::Relaxed);
-            // No response is sent since the workers will immediately start shutting down
-            return false;
-        }
-
         let interpreter_response = self.interpreter.interpret(request);
-        let response = ExecutorResponse{response: interpreter_response, stream_sender};
-        self.send_response(response);
-        true
+        let keep_going =         match interpreter_response {
+            Ok(InterpreterResponse::ShuttingDown) => false,
+            _ => true,
+        };
+        let executor_response = ExecutorResponse{response: interpreter_response, stream_sender};
+        self.send_response(executor_response);
+        keep_going
     }
 
     /// Send a response to the responder pool for final processing and sending
@@ -70,8 +58,9 @@ impl<S: Storage> Executor<S> {
     /// Loop until told to shut down.
     pub fn run(&mut self) {
         for request in self.request_channel.recv() {
-            let stop = self.execute(request);
-            if stop {
+            let keep_going = self.execute(request);
+            if !keep_going {
+                self.shutdown_workers_flag.swap(true, Ordering::Relaxed);
                 break;
             }
         }

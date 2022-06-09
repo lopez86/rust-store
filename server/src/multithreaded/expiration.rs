@@ -2,10 +2,11 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::time::Duration;
-use std::thread;
+use std::thread::{self, JoinHandle};
 
-use crate::workers::executor::ExecutorRequest;
-use crate::analysis::{InterpreterRequest, Privileges, Statement};
+use crate::multithreaded::executor::ExecutorRequest;
+use crate::analysis::{InterpreterRequest, Statement};
+use crate::auth::AuthorizationLevel;
 
 
 /// The expiration worker periodically polls the storage to check if there are expired keys.
@@ -24,7 +25,9 @@ pub struct ExpirationWorker {
     /// Time interval
     interval: Duration,
     /// Kill signal
-    shutdown_signal: Arc<AtomicBool>, 
+    shutdown_signal: Arc<AtomicBool>,
+    /// Thread
+    thread: Option<JoinHandle<()>>,
 }
 
 
@@ -33,7 +36,9 @@ impl ExpirationWorker {
     fn expire_keys(&self) {
         for _ in 0..self.ncalls {
             let request = ExecutorRequest {
-                request: Ok(InterpreterRequest { statement: Statement::ExpireKeys, privileges: Privileges::Admin}),
+                request: InterpreterRequest {
+                    statements: vec![Statement::ExpireKeys], authorization: AuthorizationLevel::Admin
+                },
                 stream_sender: None,
             };
             self.channel.send(request).unwrap();
@@ -51,6 +56,14 @@ impl ExpirationWorker {
             self.expire_keys()
 
         }
+    }
+
+    /// Spawn a thread
+    pub fn spawn(&mut self) {
+        let join_handle = thread::spawn(|| {
+            self.run();
+        });
+        self.thread = Some(join_handle);
     }
 }
 

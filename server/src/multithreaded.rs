@@ -4,3 +4,5 @@ pub mod analysis;
 pub mod executor;
 /// The expiration worker invalidates expiring keys
 pub mod expiration;
+/// The main coordinating worker
+pub mod coordinator;

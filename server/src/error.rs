@@ -10,7 +10,7 @@ pub enum ServerError {
     NetworkError(String),
     /// Cannot write for some reason
     WriteError(String),
-    ///  Tokenization errors
+    /// Tokenization errors
     TokenizationError(String),
     /// Parsing fails
     ParseError(String),
@@ -18,14 +18,31 @@ pub enum ServerError {
     IndexError(String),
     /// The type of something is not what was expected
     TypeError(String),
-    /// A lifetime is incorrect (0 or negative)
-    InvalidLifetimeError(String),
-    /// Random internal errors
-    InternalError(String),
     /// Catchall for anything else
-    OtherError(String),
-    /// Authentication errors
-    UnauthorizedError(String)
+    InternalError(String),
+    /// Authorization errors
+    AuthorizationError(String),
+    /// Authentication error
+    AuthenticationError(String),
+    /// Error 
+    RequestError(String),
+}
+
+pub fn get_error_code(error: &ServerError) -> String {
+    let err_string = match error {
+        ServerError::KeyError(_) => "422 Unprocessible Entity",
+        ServerError::NetworkError(_) => "500 Internal Service Error",
+        ServerError::WriteError(_) => "500 Internal Service Error",
+        ServerError::TokenizationError(_) => "422 Unprocessible Entity",
+        ServerError::ParseError(_) => "422 Unprocessible Entity",
+        ServerError::IndexError(_) => "422 Unprocessible Entity",
+        ServerError::TypeError(_) => "422 Unprocessible Entity",
+        ServerError::InternalError(_) => "500 Internal Service Error",
+        ServerError::AuthorizationError(_) => "401 Unauthorized",
+        ServerError::AuthenticationError(_) => "403 Forbidden",
+        ServerError::RequestError(_) => "400 Bad Request",
+    };
+    err_string.to_string()
 }
 
 impl Display for ServerError {
@@ -38,10 +55,10 @@ impl Display for ServerError {
             ServerError::ParseError(msg) => ("ParseError", msg),
             ServerError::IndexError(msg) => ("IndexError", msg),
             ServerError::TypeError(msg) => ("TypeError", msg),
-            ServerError::InvalidLifetimeError(msg) => ("InvalidLifetimeError", msg),
-            ServerError::InternalError(msg) => ("OtherError", msg),
-            ServerError::OtherError(msg) => ("InternalError", msg),
-            ServerError::UnauthorizedError(msg) => ("UnauthorizedError", msg),
+            ServerError::InternalError(msg) => ("InternalError", msg),
+            ServerError::AuthorizationError(msg) => ("AuthorizationError", msg),
+            ServerError::AuthenticationError(msg) => ("AuthenticationError", msg),
+            ServerError::RequestError(msg) => ("RequestError", msg),
         };
         write!(f, "{}: {}", err, msg)
     }
