@@ -15,54 +15,6 @@ pub struct Parser {
     error_encountered: bool,
 }
 
-fn get_name_from_token(token: &AnnotatedToken) -> Result<String, ServerError> {
-    let map_name = match &token.token {
-        Token::Identifier(identifier) => identifier,
-        _ => return Err(
-            ServerError::ParseError(
-                format!("Expected an identifier. Got {} at {}", token.lexeme, token.position)
-            )
-        ),
-    };
-    Ok(*map_name.clone())
-}
-
-fn get_key_from_token(token: &AnnotatedToken) -> Result<StorageValue, ServerError> {
-    match &token.token {
-        Token::Integer(value) => Ok(StorageValue::Int(*value)),
-        Token::StringValue(value) => Ok(StorageValue::String(*value.clone())),
-        _ => Err(
-            ServerError::ParseError(
-                format!("Expected a valid map key. Got {} at {}", token.lexeme, token.position)
-            )
-        )
-    }
-}
-
-fn get_index_from_token(token: &AnnotatedToken) -> Result<usize, ServerError> {
-    match token.token {
-        Token::Integer(value) => {
-            match value.try_into() {
-                Ok(value) => Ok(value),
-                Err(_) => Err(
-                    ServerError::ParseError(
-                        format!(
-                            "Expected a valid vector index. Got {} at {}",
-                            token.lexeme,
-                            token.position,
-                        )
-                    )
-                )
-            }
-        },
-        _ => Err(
-            ServerError::ParseError(
-                format!("Expected a valid vector index. Got {} at {}", token.lexeme, token.position)
-            )
-        )
-    }
-}
-
 impl Parser {
     /// Construct a new parser
     pub fn new(tokens: Vec<AnnotatedToken>) -> Parser {
@@ -184,15 +136,11 @@ impl Parser {
     fn process_map_identifier_statement<F>(&mut self, f: F) -> Result<Statement, ServerError>
     where F: Fn(&StorageKey, StorageValue) -> Statement
     {
-        let next_token = self.advance();
-        let map_name = match get_name_from_token(next_token) {
-            Ok(name) => name,
-            Err(err) => return Err(err),
-        };
-        let key = match get_key_from_token(next_token) {
-            Ok(key) => key,
-            Err(err) => return Err(err),
-        };
+        let map_name = self.get_name_from_next_token()?;
+        if self.is_at_end() {
+            return ServerError::ParseError("Expected map key after map name.".to_string());
+        }
+        let key = self.get_key_from_next_token()?;
         Ok(f(&map_name, key))
     }   
 
@@ -238,23 +186,37 @@ impl Parser {
     }
 
     fn map_set(&mut self) -> Result<Statement, ServerError> {
-        Err(ServerError::ParseError("Feature not implemented.".to_string()))
+        let map_name = self.get_name_from_next_token()?;
+        let key = self.get_key_from_next_token()?;
+        let value = self.get_scalar_value_from_next_token()?;
+        Ok(Statement::MapSet(map_name, key, value))
     }
 
     fn set(&mut self) ->Result<Statement, ServerError> {
-        Err(ServerError::ParseError("Feature not implemented.".to_string()))
+        let name = self.get_name_from_next_token()?;
+        let value = self.get_value_from_next_token()?;
+        let lifetime = self.get_lifetime_from_next_token()?;
+        Ok(Statement::Set(name, value, lifetime))
     }
 
     fn set_if_not_exists(&mut self) -> Result<Statement, ServerError> {
-        Err(ServerError::ParseError("Feature not implemented.".to_string()))
+        let name = self.get_name_from_next_token()?;
+        let value = self.get_value_from_next_token()?;
+        let lifetime = self.get_lifetime_from_next_token()?;
+        Ok(Statement::SetIfNotExists(name, value, lifetime))
     }
 
     fn set_lifetime(&mut self) -> Result<Statement, ServerError> {
-        Err(ServerError::ParseError("Feature not implemented.".to_string()))
+        let name = self.get_name_from_next_token()?;
+        let lifetime = self.get_lifetime_from_next_token()?;
+        Ok(Statement::SetLifetime(name, lifetime))
     }
 
     fn update(&mut self) -> Result<Statement, ServerError> {
-        Err(ServerError::ParseError("Feature not implemented.".to_string()))
+        let name = self.get_name_from_next_token()?;
+        let value = self.get_value_from_next_token()?;
+        let lifetime = self.get_lifetime_from_next_token()?;
+        Ok(Statement::Update(name, value, lifetime))
     }
 
     fn value_type(&mut self) -> Result<Statement, ServerError> {
@@ -264,11 +226,15 @@ impl Parser {
     }
 
     fn vector_append(&mut self) -> Result<Statement, ServerError> {
-        Err(ServerError::ParseError("Feature not implemented.".to_string()))
+        let name = self.get_name_from_next_token()?;
+        let value = self.get_scalar_value_from_next_token()?;
+        Ok(Statement::VectorAppend(name, value))
     }
 
     fn vector_get(&mut self) -> Result<Statement, ServerError> {
-        Err(ServerError::ParseError("Feature not implemented.".to_string()))
+        let name = self.get_name_from_next_token()?;
+        let index = self.get_index_from_next_token()?;
+        Ok(Statement::VectorGet(name, index))
     }
 
     fn vector_length(&mut self) -> Result<Statement, ServerError> {
@@ -283,7 +249,10 @@ impl Parser {
     }
 
     fn vector_set(&mut self) -> Result<Statement, ServerError> {
-        Err(ServerError::ParseError("Feature not implemented.".to_string()))
+        let name = self.get_name_from_next_token()?;
+        let index = self.get_index_from_next_token()?;
+        let value = self.get_scalar_value_from_next_token()?;
+        Ok(Statement::VectorSet(name, index, value))
     }
 
     /// Remove any successive semicolons at the current position
@@ -304,6 +273,128 @@ impl Parser {
         }
     }
 
+    fn get_name_from_next_token(&mut self) -> Result<String, ServerError> {
+        if self.is_at_end() {
+            return ServerError::ParseError("Expected an identifier instead of the end of the query.");
+        }
+        let token = self.advance();
+        let map_name = match &token.token {
+            Token::Identifier(identifier) => identifier,
+            _ => return Err(
+                ServerError::ParseError(
+                    format!("Expected an identifier. Got {} at {}", token.lexeme, token.position)
+                )
+            ),
+        };
+        Ok(*map_name.clone())
+    }
+    
+    fn get_key_from_next_oken(&mut self) -> Result<StorageValue, ServerError> {
+        if self.is_at_end() {
+            return ServerError::ParseError("Expected an identifier instead of the end of the query.");
+        }
+        let token = self.advance();
+        match &token.token {
+            Token::Integer(value) => Ok(StorageValue::Int(*value)),
+            Token::StringValue(value) => Ok(StorageValue::String(*value.clone())),
+            _ => Err(
+                ServerError::ParseError(
+                    format!("Expected a valid map key. Got {} at {}", token.lexeme, token.position)
+                )
+            )
+        }
+    }
+    
+    fn get_index_from_next_token(&mut self) -> Result<usize, ServerError> {
+        if self.is_at_end() {
+            return ServerError::ParseError("Expected an identifier instead of the end of the query.");
+        }
+        let token = self.advance();
+        match token.token {
+            Token::Integer(value) => {
+                match value.try_into() {
+                    Ok(value) => Ok(value),
+                    Err(_) => Err(
+                        ServerError::ParseError(
+                            format!(
+                                "Expected a valid vector index. Got {} at {}",
+                                token.lexeme,
+                                token.position,
+                            )
+                        )
+                    )
+                }
+            },
+            _ => Err(
+                ServerError::ParseError(
+                    format!("Expected a valid vector index. Got {} at {}", token.lexeme, token.position)
+                )
+            )
+        }
+    }
+
+    fn get_scalar_value_from_next_token(&mut self) -> Result<StorageValue, ServerError> {
+        if self.is_at_end() {
+            return ServerError::ParseError("Expected an identifier instead of the end of the query.");
+        }
+        let next_token = self.advance();
+        let storage_value = match next_token.token {
+            Token::Bool(value) => {
+                StorageValue::Bool(value)
+            },
+            Token::Integer(value) => {
+                StorageValue::Int(value)
+            },
+            Token::Float(value) => {
+                StorageValue::Float(value)
+            },
+            Token::String(value) => {
+                StorageValue::String(value)
+            },
+            _ => return Err(ServerError::ParseError("Expected valid scalar value.".to_string())),
+        };
+        Ok(storage_value)
+    }
+
+    fn get_collection_value_from_next_token(&mut self) -> Result<StorageValue, ServerError> {
+        Err(ServerError::InternalError("Not implemented."))
+    }
+
+    fn get_lifetime_from_next_token(&mut self) -> Result<Option<usize>, ServerError> {
+        if self.is_at_end() {
+            return Ok(None)
+        }
+        if let Token::Colon = self.view() {
+            return Ok(None)
+        }
+        let value = self.advance();
+        if let Token::Integer(value) = value.token {
+            if value < 0 {
+                Err(ServerError::ParseError("Expected a positive integer as a lifetime.").to_string())
+            } else {
+                let unsigned_value: u64 = value;
+                Ok(Some(unsigned_value))
+            }
+        } else {
+            Err(ServerError::ParseError("Expected an integer value for a lifetime.".to_string()))
+        }
+    }
+
+    fn get_value_from_next_token(&mut self) -> Result<StorageValue, ServerError> {
+        if self.is_at_end() {
+            return Ok(StorageValue::Null);
+        }
+        if let Token::Colon = self.view() {
+            return Ok(StorageValue::Null);
+        }
+        let value = match self.view().token {
+            Token::BoolType | Token::StringType | Token::FloatType | Token::IntType => {
+                self.get_collection_value_from_next_tokens()?
+            },
+            _ => self.get_scalar_value_from_next_token()?
+        };
+        Ok(value)
+    }
     
 }
 

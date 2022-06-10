@@ -46,12 +46,12 @@ pub enum InterpreterResponse {
 }
 
 /// An interpreter backed by some storage 
-pub struct Interpreter<S: Storage> {
+pub struct Interpreter<S: Storage + Send> {
     /// The underlying storage to communicate with
     pub storage: S,
 }
 
-impl<S: Storage> Interpreter<S> {
+impl<S: Storage + Send> Interpreter<S> {
     /// Create a new interpreter for the storage
     pub fn new(storage: S) -> Interpreter<S> {
         Interpreter{storage}

@@ -3,8 +3,7 @@ use crate::single_threaded::SingleThreadedServer;
 
 /// Run a server.
 fn main() {
-
-    let ip_addr = IpAddr::V4(IpV4Addr::new(127, 0, 0, 1));
-    let server = SingleThreadedServer{ip_addr, 7878};
-    server.serve();
+    let server = SingleThreadedServer::new();
+    let stream_handler = TcpStreamHandler::new(ip_addr, port);
+    server.serve(stream_handler);
 }

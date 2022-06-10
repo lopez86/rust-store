@@ -1,7 +1,8 @@
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use std::thread::{self, JoinHandle};
 
 use crate::analysis::{InterpreterRequest, Parser, Tokenizer, Statement};
 use crate::auth::AuthorizationLevel;
@@ -9,7 +10,7 @@ use crate::error::ServerError;
 use crate::io::stream::StreamSender;
 use crate::multithreaded::executor::{ExecutorRequest, ExecutorResponse};
 
-struct AnalysisRequest {
+pub struct AnalysisRequest {
     request: Result<String, ServerError>,
     authorization: AuthorizationLevel,
     stream_sender: Option<Box<dyn StreamSender + Send>>,
@@ -23,6 +24,7 @@ pub struct AnalysisWorker {
     error_channel: Sender<ExecutorResponse>,
     shutdown_signal: Arc<AtomicBool>,
     receive_deadline: Duration,
+    thread: Option<JoinHandle<()>>,
 }
 
 
@@ -75,40 +77,45 @@ impl AnalysisWorker {
     /// Search for requests to be processed until ordered to shut down.
     pub fn run(&mut self) {
         loop {
+            if self.check_for_shutdown() {
+                break;
+            }
             let request = match self.receive_channel.try_lock() {
                 Ok(ref mut receiver) => {
-                    match (**receiver).recv_deadline(Instant::now() + self.receive_deadline) {
+                    match (**receiver).recv_timeout(self.receive_deadline) {
                        Ok(request) => request,
                        Err(_) => {
-                            if self.check_for_shutdown() {
-                                break;
-                            }
                            continue;
                        },
                     }
                 }
                 Err(_) => {
-                    if self.check_for_shutdown() {
-                        break;
-                    }
                     continue;
                 }
             };
-            if self.check_for_shutdown() {
-                break;
-            } else {
-                self.analyze_request(request);
-            }
+            self.analyze_request(request);
         } 
     }
 
     /// Check for a shutdown signal
     fn check_for_shutdown(&mut self) -> bool {
         if self.shutdown_signal.load(Ordering::Relaxed) {
-            println!("Shutting down expiration worker.");
+            println!("Shutting down analysis worker.");
             true
         } else {
             false
         }
+    }
+
+    /// Spawn a thread
+    pub fn spawn(&mut self) {
+        let join_handle = thread::spawn(|| {
+            self.run();
+        });
+        self.thread = Some(join_handle);
+    }
+
+    pub fn stop(&mut self) {
+        unimplemented!("This is not implemented");
     }
 }

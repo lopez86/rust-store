@@ -1,9 +1,6 @@
-use std::net::IpAddr;
-
 use crate::auth::{AuthenticationResult, AuthenticationService, MockAuthenticator};
 use crate::error::ServerError;
 use crate::io::stream::{StreamHandler, StreamRequest};
-use crate::io::tcp::TcpStreamHandler;
 use crate::analysis::{Interpreter, InterpreterRequest, InterpreterResponse, Parser, Statement, Tokenizer};
 use crate::storage::hashmap_storage::HashMapStorage;
 use crate::storage::Storage;
@@ -11,19 +8,16 @@ use crate::storage::Storage;
 pub struct SingleThreadedServer<Auth, Stor>
     where
         Auth: AuthenticationService,
-        Stor: Storage,
+        Stor: Storage + Send,
 {
     interpreter: Interpreter<Stor>,
     authenticator: Auth,
-    ip_addr: IpAddr,
-    port: usize,
 }
 
 
-impl<Auth: AuthenticationService, Stor: Storage> SingleThreadedServer<Auth, Stor> {
+impl<Auth: AuthenticationService, Stor: Storage + Send> SingleThreadedServer<Auth, Stor> {
     /// Start running the server.
-    pub fn serve(&mut self) {
-        let stream_handler = TcpStreamHandler::new(self.ip_addr, self.port);
+    pub fn serve<H: StreamHandler>(&mut self, stream_handler: H) {
         while let request = stream_handler.receive_request() {
             if let None = request {
                 println!("Stream has closed. Shutting down.");
@@ -99,10 +93,10 @@ impl<Auth: AuthenticationService, Stor: Storage> SingleThreadedServer<Auth, Stor
 
 impl SingleThreadedServer<MockAuthenticator, HashMapStorage> {
     /// Create a new server with our current standard 
-    pub fn new(ip_addr: IpAddr, port: usize) -> SingleThreadedServer<MockAuthenticator, HashMapStorage>  {
+    pub fn new() -> SingleThreadedServer<MockAuthenticator, HashMapStorage>  {
         let storage = HashMapStorage::new();
         let authenticator = MockAuthenticator;
         let interpreter = Interpreter{storage};
-        SingleThreadedServer{interpreter, authenticator, ip_addr, port}
+        SingleThreadedServer{interpreter, authenticator}
     }
 }

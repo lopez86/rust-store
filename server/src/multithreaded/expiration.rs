@@ -65,11 +65,14 @@ impl ExpirationWorker {
         });
         self.thread = Some(join_handle);
     }
+
+    pub fn stop(&mut self) {
+        unimplemented!("This is not implemented");
+    }
 }
 
 
 
 #[cfg(test)]
 mod tests {
-    use super::*;
 }
