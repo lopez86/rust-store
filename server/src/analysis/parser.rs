@@ -2,7 +2,7 @@ use std::iter::Iterator;
 
 use crate::analysis::{AnnotatedToken, Statement, Token, Tokenizer};
 use crate::error::ServerError;
-use crate::storage::{StorageKey, StorageValue};
+use crate::storage::{CollectionType, KeyType, StorageKey, StorageValue, StorageVector, StorageMap};
 
 
 /// Parsing tokens into statements
@@ -275,7 +275,7 @@ impl Parser {
 
     fn get_name_from_next_token(&mut self) -> Result<String, ServerError> {
         if self.is_at_end() {
-            return ServerError::ParseError("Expected an identifier instead of the end of the query.");
+            return ServerError::ParseError("Expected an identifier instead of the end of the query.".to_string());
         }
         let token = self.advance();
         let map_name = match &token.token {
@@ -291,7 +291,7 @@ impl Parser {
     
     fn get_key_from_next_oken(&mut self) -> Result<StorageValue, ServerError> {
         if self.is_at_end() {
-            return ServerError::ParseError("Expected an identifier instead of the end of the query.");
+            return ServerError::ParseError("Expected an identifier instead of the end of the query.".to_string());
         }
         let token = self.advance();
         match &token.token {
@@ -307,7 +307,7 @@ impl Parser {
     
     fn get_index_from_next_token(&mut self) -> Result<usize, ServerError> {
         if self.is_at_end() {
-            return ServerError::ParseError("Expected an identifier instead of the end of the query.");
+            return ServerError::ParseError("Expected an identifier instead of the end of the query.".to_string());
         }
         let token = self.advance();
         match token.token {
@@ -335,7 +335,7 @@ impl Parser {
 
     fn get_scalar_value_from_next_token(&mut self) -> Result<StorageValue, ServerError> {
         if self.is_at_end() {
-            return ServerError::ParseError("Expected an identifier instead of the end of the query.");
+            return ServerError::ParseError("Expected an identifier instead of the end of the query.".to_string());
         }
         let next_token = self.advance();
         let storage_value = match next_token.token {
@@ -357,14 +357,32 @@ impl Parser {
     }
 
     fn get_collection_value_from_next_token(&mut self) -> Result<StorageValue, ServerError> {
-        Err(ServerError::InternalError("Not implemented."))
+        let type_token = self.advance();
+        if self.is_at_statement_end() {
+            let collection_type = get_collection_type(type_token)?;
+            return Ok(StorageValue::Vector(StorageVector::new(collection_type)));
+        }
+
+        let next_token = self.view();
+        let value = if is_collection_or_key_type(&next_token.token) {
+            // We have a map
+            self.advance();
+            let key_type = get_key_type(type_token)?;
+            let collection_type = get_collection_type(&next_token.token)?;
+            let map = if self.is_at_statement_end() | self.view().token != Token::LeftCurlyBracket {
+                StorageValue::Map(StorageMap::new(key_type, collection_type))
+            } else {
+                self.get_map_value(key_type, collection_type)?
+            };
+        } else if let Token::LeftBracket = next_token.token{
+            let collection_type = get_collection_type(&type_token.token)?;
+            self.get_vector_value(collection_type)
+        };
+        Ok(value)
     }
 
     fn get_lifetime_from_next_token(&mut self) -> Result<Option<usize>, ServerError> {
-        if self.is_at_end() {
-            return Ok(None)
-        }
-        if let Token::Colon = self.view() {
+        if self.is_at_statement_end() {
             return Ok(None)
         }
         let value = self.advance();
@@ -381,19 +399,82 @@ impl Parser {
     }
 
     fn get_value_from_next_token(&mut self) -> Result<StorageValue, ServerError> {
-        if self.is_at_end() {
+        if self.is_at_statement_end() {
             return Ok(StorageValue::Null);
         }
-        if let Token::Colon = self.view() {
-            return Ok(StorageValue::Null);
-        }
-        let value = match self.view().token {
-            Token::BoolType | Token::StringType | Token::FloatType | Token::IntType => {
-                self.get_collection_value_from_next_tokens()?
-            },
-            _ => self.get_scalar_value_from_next_token()?
+        let value = if is_collection_or_key_type(&self.view().token) {
+            self.get_collection_value_from_next_tokens()?
+        } else {
+            self.get_scalar_value_from_next_token()?
         };
         Ok(value)
+    }
+
+    fn is_at_statement_end(&self) -> bool {
+        if self.is_at_end() {
+            true
+        } else if let Token::Semicolon = self.view() {
+            true
+        } else {
+            false
+        }
+    }
+
+    fn get_vector_value(&mut self, collection_type: CollectionType) -> Result<StorageValue, ServerError> {
+        let value = StorageVector::new(collection_type);
+        // We've already checked that the first character is a left bracket
+        self.advance(); // [
+        if let Token::RightBracket = self.view().token {
+            return Ok(StorageValue::Vector(value));
+        }
+
+        loop {
+            let element = self.get_scalar_value_from_next_token()?;
+            value.push(element)?;
+            if self.is_at_end() {
+                return ServerError::ParseError("Unfinished vector literal found.".to_string())
+            }
+            if let Token::RightBracket = self.view().token {
+                break;
+            } else if let Token::Comma = self.view().token {
+                self.advance()
+            } else {
+                return ServerError::ParseError("Unexpected token after vector element.".to_string())
+            }
+        }
+        self.advance(); // ]
+        Ok(StorageValue::Vector(value))
+    }
+
+    fn get_map_value(&mut self, key_type: KeyType, collection_type: CollectionType) -> Result<StorageValue, ServerError> {
+        let value = StorageMap::new(key_type, collection_type);
+        // We've already checked that the first character is a left bracket
+        self.advance(); // [
+        if let Token::RightCurlyBracket = self.view().token {
+            return Ok(StorageValue::Map(value));
+        }
+
+        loop {
+            let element_key = self.get_scalar_value_from_next_token()?;
+            if self.is_at_end() {
+                return ServerError::ParseError("Unfinished map literal found.".to_string())
+            }
+            let colon = self.advance();
+            if colon.token != Token::Colon {
+                return ServerError::ParseError("Expected colon after key.".to_string())
+            }
+            let element_value = self.get_scalar_value_from_next_token()?;
+            value.set(element_key, element_value);
+            if let Token::RightCurlyBracket = self.view().token {
+                break;
+            } else if let Token::Comma = self.view().token {
+                self.advance()
+            } else {
+                return ServerError::ParseError("Unexpected token after key-value pair.".to_string())
+            }
+        }
+        self.advance(); // ]
+        Ok(StorageValue::Map(value))
     }
     
 }
@@ -410,5 +491,30 @@ impl Iterator for Parser {
             Ok(Some(statement)) => Some(Ok(statement)),
             Err(err) => Some(Err(err)),
         }
+    }
+}
+
+fn get_collection_type(token: &Token) -> Result<CollectionType, ServerError> {
+    match token {
+        Token::BoolType => Ok(CollectionType::Bool),
+        Token::FloatType => Ok(CollectionType::Float),
+        Token::IntType => Ok(CollectionType::Int),
+        Token::StringType => Ok(CollectionType::String),
+        _ => Err(ServerError::ParseError("Expected a valid collection scalar type.".to_string()))
+    }
+}
+
+fn get_key_type(token: &Token) -> Result<KeyType, ServerError> {
+    match token {
+        Token::IntType => Ok(KeyType::Int),
+        Token::StringType => Ok(KeyType::String),
+        _ => Err(ServerError::ParseError("Expected a valid key scalar type.".to_string()))
+    }
+}
+
+fn is_collection_or_key_type(token: &Token) -> bool {
+    match token {
+        Token::BoolType | Token::StringType | Token::FloatType | Token::IntType => true,
+        _ => false
     }
 }

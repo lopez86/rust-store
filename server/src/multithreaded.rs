@@ -14,7 +14,8 @@ pub mod responder;
 
 
 pub trait Worker {
-
+    fn spawn(&mut self);
+    fn stop(&mut self);
 }
 
 pub struct ThreadPool<W: Worker> {
@@ -22,7 +23,7 @@ pub struct ThreadPool<W: Worker> {
     stop_flag: Arc<AtomicBool>,
 }
 
-impl<W: Worker> ThreadPool<W> {
+impl ThreadPool<W> {
 
     fn spawn(&mut self) {
         unimplemented!("This is not implemented");
