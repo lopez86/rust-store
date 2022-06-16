@@ -1,9 +1,11 @@
+use std::time::SystemTime;
+
 use serde::{Deserialize, Serialize};
 
 use crate::analysis::Statement;
 use crate::auth::AuthorizationLevel;
 use crate::error::ServerError;
-use crate::storage::{Storage, StorageKey, StorageValue};
+use crate::storage::{Storage, StorageElement, StorageKey, StorageValue};
 
 /// Defines the different privilege levels that can be attached to a request.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -35,6 +37,8 @@ pub enum InterpreterResponse {
     Message(String),
     /// Get the size of something
     Size(usize),
+    /// When something expires
+    Expiration(Option<u64>),
     /// Get a key
     Key(StorageKey),
     /// Get a boolean value
@@ -84,12 +88,228 @@ impl<S: Storage + Send> Interpreter<S> {
     fn process_statement(
         &mut self, statement: &Statement
     ) -> Result<InterpreterResponse, ServerError> {
-        if let Statement::Shutdown = statement {
-            return Ok(InterpreterResponse::ShuttingDown);
+        match statement {
+            Statement::Shutdown => return Ok(InterpreterResponse::ShuttingDown),
+            Statement::Null => return Ok(InterpreterResponse::Null),
+            Statement::Get(key) => return self.get(key),
+            Statement::Exists(key) => return self.exists(key),
+            Statement::GetIfExists(key) => return self.get_if_exists(key),
+            Statement::GetLifetime(key) => return self.get_lifetime(key),
+            Statement::ExpireKeys => return self.expire_keys(),
+            Statement::Delete(key) => return self.delete(key),
+            Statement::Set(key, value, lifetime) => return self.set(key, value, lifetime),
+            Statement::SetIfNotExists(key, value, lifetime) => return self.set(key, value, lifetime),
+            Statement::Update(key, value, lifetime) => return self.update(key, value, lifetime),
+            Statement::UpdateLifetime(key, lifetime) => return self.update_lifetime(key, lifetime),
+            Statement::VectorGet(key, index) => return self.vector_get(key, index),
+            Statement::VectorLength(key) => return self.vector_length(key),
+            Statement::VectorAppend(key, value) => return self.vector_append(key, value),
+            Statement::VectorPop(key) => return self.vector_pop(key),
+            Statement::VectorSet(key, index, value) => return self.vector_set(key, index, value),
+            Statement::MapGet(key, element_key) => return self.map_get(key, element_key),
+            Statement::MapExists(key, element_key) => return self.map_exists(key, element_key),
+            Statement::MapLength(key) => return self.map_length(key),
+            Statement::MapDelete(key, element_key) => return self.map_delete(key, element_key),
+            Statement::MapSet(key, element_key, value) => return self.map_set(key, element_key, value),
+            Statement::ValueType(key) => return self.value_type(key),
         }
-        Err(ServerError::InternalError("Interpreter not yet implemented for most cases.".to_string()))
     }
 
+    fn get(&self, key: &StorageKey) -> Result<InterpreterResponse, ServerError> {
+        let result = self.storage.get(key)?;
+        Ok(InterpreterResponse::Value(result))
+    }
+
+    fn exists(&self, key: &StorageKey) -> Result<InterpreterResponse, ServerError> {
+        let result = self.storage.contains_key(key)?;
+        Ok(InterpreterResponse::Bool(result))
+    }
+
+    fn get_if_exists(&self, key: &StorageKey) -> Result<InterpreterResponse, ServerError> {
+        let result = self.storage.get(key)?;
+        Ok(InterpreterResponse::Value(result))
+    }
+
+    fn get_lifetime(&self, key: &StorageKey) -> Result<InterpreterResponse, ServerError> {
+        let current_time = SystemTime::now();
+        let result = self.storage.get(key)?;
+        let result = match result.expiration {
+            None => None,
+            Some(timestamp) => {
+                let difference = timestamp.duration_since(current_time);
+                match difference {
+                    Err(_) => return ServerError::IndexError(format!("No entry found for key {}", key)),
+                    Some(diff) => diff.as_secs(),
+                }
+            },
+        };
+        Ok(InterpreterResponse::Expiration(result))
+    }
+
+    fn expire_keys(&mut self) -> Result<InterpreterResponse, ServerError> {
+        let result = self.storage.invalidate_expired_keys()?;
+        Ok(InterpreterResponse::Size(result))
+    }
+
+    fn delete(&mut self, key: &StorageKey) -> Result<InterpreterResponse, ServerError> {
+        let result = self.storage.delete(key)?;
+        Ok(InterpreterResponse::Bool(result))
+    }
+
+    fn set(
+        &mut self, key: &StorageKey, value: &StorageValue, expiration: Option<u64>
+    ) -> Result<InterpreterResponse, ServerError> {
+        let element = StorageElement{key, value, expiration};
+        let result = self.storage.set(key, element)?;
+        Ok(InterpreterResponse::Message("Ok".to_string()))
+    }
+
+    fn set_if_not_exists(
+        &mut self, key: &StorageKey, value: &StorageValue, expiration: Option<u64>
+    ) -> Result<InterpreterResponse, ServerError> {
+        let element = StorageElement{key, value, expiration};
+        let result = self.storage.set_if_not_exists(key, element)?;
+        Ok(InterpreterResponse::Bool(result))
+    }
+
+    fn update(
+        &mut self, key: &StorageKey, value: &StorageValue, expiration: Option<u64>
+    ) -> Result<InterpreterResponse, ServerError> {
+        let element = StorageElement{key, value, expiration};
+        let result = self.storage.update(key, element)?;
+        Ok(InterpreterResponse::Message("Ok".to_string()))
+    }
+
+    fn update_expiration(
+        &mut self, key: &StorageKey, expiration: Option<u64>
+    ) -> Result<InterpreterResponse, ServerError> {
+        let result = self.storage.update_expiration(key, expiration)?;
+        Ok(InterpreterResponse::Message("Ok".to_string()))
+    }
+
+    fn vector_get(
+        &mut self, key: &StorageKey, index: usize
+    ) -> Result<InterpreterResponse, ServerError> {
+        let vector_element = self.storage.get(key)?;
+        if let StorageValue::Vector(vector) = vector_element.value {
+            let value = vector.get(index)?;
+            Ok(InterpreterResponse::Value(value.clone()))
+        } else {
+            Err(ServerError::TypeError(format!("Element with key '{}' not a vector.", key)))
+        }
+    }
+    
+    fn vector_length(
+        &mut self, key: &StorageKey
+    ) -> Result<InterpreterResponse, ServerError> {
+        let vector_element = self.storage.get(key)?;
+        if let StorageValue::Vector(vector) = vector_element.value {
+            Ok(InterpreterResponse::Size(vector.len()))
+        } else {
+            Err(ServerError::TypeError(format!("Element with key '{}' not a vector.", key)))
+        }
+    }
+
+    fn vector_append(
+        &mut self, key: &StorageKey, value: StorageValue
+    ) -> Result<InterpreterResponse, ServerError> {
+        let vector_element = self.storage.get(key)?;
+        if let StorageValue::Vector(vector) = vector_element.value {
+            vector.push(value)?;
+            Ok(InterpreterResponse::Message("Ok".to_string()))
+        } else {
+            Err(ServerError::TypeError(format!("Element with key '{}' not a vector.", key)))
+        }
+    }
+
+    fn vector_pop(
+        &mut self, key: &StorageKey
+    ) -> Result<InterpreterResponse, ServerError> {
+        let vector_element = self.storage.get(key)?;
+        if let StorageValue::Vector(vector) = vector_element.value {
+            let value = vector.pop();
+            let value_response = match value {
+                None => StorageValue::Null,
+                Some(value) => value,
+            };
+            Ok(InterpreterResponse::Value(value))
+        } else {
+            Err(ServerError::TypeError(format!("Element with key '{}' not a vector.", key)))
+        }
+    }
+
+    fn vector_set(
+        &mut self, key: &StorageKey, index: usize, value: StorageValue
+    ) -> Result<InterpreterResponse, ServerError> {
+        let vector_element = self.storage.get(key)?;
+        if let StorageValue::Vector(vector) = vector_element.value {
+            vector.set(index, value)?;
+            Ok(InterpreterResponse::Message("Ok".to_string()))
+        } else {
+            Err(ServerError::TypeError(format!("Element with key '{}' not a vector.", key)))
+        }
+    }
+
+    fn map_get(
+        &mut self, key: &StorageKey, map_key: &StorageValue
+    ) -> Result<InterpreterResponse, ServerError> {
+        let vector_element = self.storage.get(key)?;
+        if let StorageValue::Map(map) = vector_element.value {
+            let value = map.get(map_key)?;
+            Ok(InterpreterResponse::Value(value.clone()))
+        } else {
+            Err(ServerError::TypeError(format!("Element with key '{}' not a map.", key)))
+        }
+    }
+
+    fn map_length(
+        &mut self, key: &StorageKey
+    ) -> Result<InterpreterResponse, ServerError> {
+        let vector_element = self.storage.get(key)?;
+        if let StorageValue::Map(map) = vector_element.value {
+            Ok(InterpreterResponse::Size(map.len()))
+        } else {
+            Err(ServerError::TypeError(format!("Element with key '{}' not a map.", key)))
+        }
+    }
+
+    fn map_exists(
+        &mut self, key: &StorageKey, map_key: &StorageValue
+    ) -> Result<InterpreterResponse, ServerError> {
+        let vector_element = self.storage.get(key)?;
+        if let StorageValue::Map(map) = vector_element.value {
+            let result = map.contains_key(map_key)?;
+            Ok(InterpreterResponse::Bool(result))
+        } else {
+            Err(ServerError::TypeError(format!("Element with key '{}' not a map.", key)))
+        }
+    }
+
+    
+    fn map_set(
+        &mut self, key: &StorageKey, map_key: StorageValue, value: StorageValue
+    ) -> Result<InterpreterResponse, ServerError> {
+        let vector_element = self.storage.get(key)?;
+        if let StorageValue::Map(map) = vector_element.value {
+            let result = map.set(map_key, value)?;
+            Ok(InterpreterResponse::Message("Ok".to_string()))
+        } else {
+            Err(ServerError::TypeError(format!("Element with key '{}' not a map.", key)))
+        }
+    }
+
+    
+    fn map_delete(
+        &mut self, key: &StorageKey, map_key: &StorageValue
+    ) -> Result<InterpreterResponse, ServerError> {
+        let vector_element = self.storage.get(key)?;
+        if let StorageValue::Map(map) = vector_element.value {
+            let result = map.delete(map_key)?;
+            Ok(InterpreterResponse::Bool(result))
+        } else {
+            Err(ServerError::TypeError(format!("Element with key '{}' not a map.", key)))
+        }
+    }
 }
 
 
