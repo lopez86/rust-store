@@ -5,7 +5,16 @@ use serde::{Deserialize, Serialize};
 use crate::analysis::Statement;
 use crate::auth::AuthorizationLevel;
 use crate::error::ServerError;
-use crate::storage::{Storage, StorageElement, StorageKey, StorageValue};
+use crate::storage::{
+    CollectionType,
+    KeyType,
+    Storage,
+    StorageElement,
+    StorageKey,
+    StorageMap,
+    StorageValue,
+    StorageVector,
+};
 
 /// Defines the different privilege levels that can be attached to a request.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -28,6 +37,17 @@ pub struct InterpreterRequest {
     pub authorization: AuthorizationLevel,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+pub enum ValueType {
+    Null,
+    Bool,
+    Int,
+    Float,
+    String,
+    Vector(CollectionType),
+    Map(KeyType, CollectionType),
+}
+
 /// A response from the interpreter
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum InterpreterResponse {
@@ -43,6 +63,8 @@ pub enum InterpreterResponse {
     Key(StorageKey),
     /// Get a boolean value
     Bool(bool),
+    /// Value types
+    ValueType(ValueType),
     /// Shutting down the server
     ShuttingDown,
     /// No response
@@ -120,6 +142,24 @@ impl<S: Storage + Send> Interpreter<S> {
         Ok(InterpreterResponse::Value(result))
     }
 
+    fn value_type(&self, key: &StorageKey) -> Result<InterpreterResponse, ServerError> {
+        let result = self.storage.get(key)?;
+        let result = match result.value {
+            StorageValue::Null => ValueType::Null,
+            StorageValue::Bool(_) => ValueType::Bool,
+            StorageValue::Int(_) => ValueType::Int,
+            StorageValue::Float(_) => ValueType::Float,
+            StorageValue::String(_) => ValueType::String,
+            StorageValue::Vector(v) => {
+                ValueType::Vector(v.collection_type)
+            },
+            StorageValue::Map(m) => {
+                ValueType::Map(m.key_type, m.collection_type)
+            },
+        };
+        Ok(InterpreterResponse::ValueType(result))
+    }
+
     fn exists(&self, key: &StorageKey) -> Result<InterpreterResponse, ServerError> {
         let result = self.storage.contains_key(key)?;
         Ok(InterpreterResponse::Bool(result))
@@ -187,128 +227,124 @@ impl<S: Storage + Send> Interpreter<S> {
         Ok(InterpreterResponse::Message("Ok".to_string()))
     }
 
-    fn vector_get(
-        &mut self, key: &StorageKey, index: usize
-    ) -> Result<InterpreterResponse, ServerError> {
-        let vector_element = self.storage.get(key)?;
-        if let StorageValue::Vector(vector) = vector_element.value {
-            let value = vector.get(index)?;
-            Ok(InterpreterResponse::Value(value.clone()))
+    fn get_vector_element(&mut self, key: &StorageKey) -> Result<StorageVector, ServerError> {
+        let element = self.storage.get(key)?;
+        if let StorageValue::Vector(vector) = element.value {
+            Ok(vector)
         } else {
             Err(ServerError::TypeError(format!("Element with key '{}' not a vector.", key)))
         }
+    }
+
+    fn get_map_element(&mut self, key: &StorageKey) -> Result<StorageMap, ServerError> {
+        let element = self.storage.get(key)?;
+        if let StorageValue::Map(map) = element.value {
+            Ok(map)
+        } else {
+            Err(ServerError::TypeError(format!("Element with key '{}' not a map.", key)))
+        }
+    } 
+
+    fn get_vector_element_mut(&mut self, key: &StorageKey) -> Result<&mut StorageVector, ServerError> {
+        let element = self.storage.get_mut(key)?;
+        if let StorageValue::Vector(&mut vector) = element.value {
+            Ok(vector)
+        } else {
+            Err(ServerError::TypeError(format!("Element with key '{}' not a vector.", key)))
+        }
+    }
+
+    fn get_map_element_mut(&mut self, key: &StorageKey) -> Result<&mut StorageMap, ServerError> {
+        let element = self.storage.get_mut(key)?;
+        if let StorageValue::Map(&mut map) = element.value {
+            Ok(map)
+        } else {
+            Err(ServerError::TypeError(format!("Element with key '{}' not a map.", key)))
+        }
+    } 
+
+    fn vector_get(
+        &mut self, key: &StorageKey, index: usize
+    ) -> Result<InterpreterResponse, ServerError> {
+        let vector = self.get_vector_element(key)?;
+        let value = vector.get(index)?;
+        Ok(InterpreterResponse::Value(value.clone()))
     }
     
     fn vector_length(
         &mut self, key: &StorageKey
     ) -> Result<InterpreterResponse, ServerError> {
-        let vector_element = self.storage.get(key)?;
-        if let StorageValue::Vector(vector) = vector_element.value {
-            Ok(InterpreterResponse::Size(vector.len()))
-        } else {
-            Err(ServerError::TypeError(format!("Element with key '{}' not a vector.", key)))
-        }
+        let vector = self.get_vector_element(key)?;
+        Ok(InterpreterResponse::Size(vector.len()))
     }
 
     fn vector_append(
         &mut self, key: &StorageKey, value: StorageValue
     ) -> Result<InterpreterResponse, ServerError> {
-        let vector_element = self.storage.get(key)?;
-        if let StorageValue::Vector(vector) = vector_element.value {
-            vector.push(value)?;
-            Ok(InterpreterResponse::Message("Ok".to_string()))
-        } else {
-            Err(ServerError::TypeError(format!("Element with key '{}' not a vector.", key)))
-        }
+        let vector = self.get_vector_element_mut(key)?;
+        vector.push(value)?;
+        Ok(InterpreterResponse::Message("Ok".to_string()))
     }
 
     fn vector_pop(
         &mut self, key: &StorageKey
     ) -> Result<InterpreterResponse, ServerError> {
-        let vector_element = self.storage.get(key)?;
-        if let StorageValue::Vector(vector) = vector_element.value {
-            let value = vector.pop();
-            let value_response = match value {
-                None => StorageValue::Null,
-                Some(value) => value,
-            };
-            Ok(InterpreterResponse::Value(value))
-        } else {
-            Err(ServerError::TypeError(format!("Element with key '{}' not a vector.", key)))
-        }
+        let vector = self.get_vector_element_mut(key)?;
+        let value = vector.pop();
+        let value_response = match value {
+            None => StorageValue::Null,
+            Some(value) => value,
+        };
+        Ok(InterpreterResponse::Value(value))
     }
 
     fn vector_set(
         &mut self, key: &StorageKey, index: usize, value: StorageValue
     ) -> Result<InterpreterResponse, ServerError> {
-        let vector_element = self.storage.get(key)?;
-        if let StorageValue::Vector(vector) = vector_element.value {
-            vector.set(index, value)?;
-            Ok(InterpreterResponse::Message("Ok".to_string()))
-        } else {
-            Err(ServerError::TypeError(format!("Element with key '{}' not a vector.", key)))
-        }
+        let vector = self.get_vector_element_mut(key)?;
+        vector.set(index, value)?;
+        Ok(InterpreterResponse::Message("Ok".to_string()))
     }
 
     fn map_get(
         &mut self, key: &StorageKey, map_key: &StorageValue
     ) -> Result<InterpreterResponse, ServerError> {
-        let vector_element = self.storage.get(key)?;
-        if let StorageValue::Map(map) = vector_element.value {
-            let value = map.get(map_key)?;
-            Ok(InterpreterResponse::Value(value.clone()))
-        } else {
-            Err(ServerError::TypeError(format!("Element with key '{}' not a map.", key)))
-        }
+        let map = self.get_map_element(key)?;
+        let value = map.get(map_key)?;
+        Ok(InterpreterResponse::Value(value.clone()))
     }
 
     fn map_length(
         &mut self, key: &StorageKey
     ) -> Result<InterpreterResponse, ServerError> {
-        let vector_element = self.storage.get(key)?;
-        if let StorageValue::Map(map) = vector_element.value {
-            Ok(InterpreterResponse::Size(map.len()))
-        } else {
-            Err(ServerError::TypeError(format!("Element with key '{}' not a map.", key)))
-        }
+        let map = self.get_map_element(key)?;
+        Ok(InterpreterResponse::Size(map.len()))
     }
 
     fn map_exists(
         &mut self, key: &StorageKey, map_key: &StorageValue
     ) -> Result<InterpreterResponse, ServerError> {
-        let vector_element = self.storage.get(key)?;
-        if let StorageValue::Map(map) = vector_element.value {
-            let result = map.contains_key(map_key)?;
-            Ok(InterpreterResponse::Bool(result))
-        } else {
-            Err(ServerError::TypeError(format!("Element with key '{}' not a map.", key)))
-        }
+        let map = self.get_map_element(key)?;
+        let result = map.contains_key(map_key)?;
+        Ok(InterpreterResponse::Bool(result))
     }
 
     
     fn map_set(
         &mut self, key: &StorageKey, map_key: StorageValue, value: StorageValue
     ) -> Result<InterpreterResponse, ServerError> {
-        let vector_element = self.storage.get(key)?;
-        if let StorageValue::Map(map) = vector_element.value {
-            let result = map.set(map_key, value)?;
-            Ok(InterpreterResponse::Message("Ok".to_string()))
-        } else {
-            Err(ServerError::TypeError(format!("Element with key '{}' not a map.", key)))
-        }
+        let map = self.get_map_element_mut(key)?;
+        let result = map.set(map_key, value)?;
+        Ok(InterpreterResponse::Message("Ok".to_string()))
     }
 
     
     fn map_delete(
         &mut self, key: &StorageKey, map_key: &StorageValue
     ) -> Result<InterpreterResponse, ServerError> {
-        let vector_element = self.storage.get(key)?;
-        if let StorageValue::Map(map) = vector_element.value {
-            let result = map.delete(map_key)?;
-            Ok(InterpreterResponse::Bool(result))
-        } else {
-            Err(ServerError::TypeError(format!("Element with key '{}' not a map.", key)))
-        }
+        let map = self.get_map_element_mut(key)?;
+        let result = map.delete(map_key)?;
+        Ok(InterpreterResponse::Bool(result))
     }
 }
 

@@ -167,7 +167,7 @@ pub struct StorageVector {
     /// The raw vector to be accessed
     vector: Vec<StorageValue>,
     /// The type of data held in the vector
-    collection_type: CollectionType
+    pub collection_type: CollectionType
 }
 
 
@@ -244,9 +244,9 @@ pub struct StorageMap {
     /// The raw map to be accessed
     map: HashMap<StorageValue, StorageValue>,
     /// The type of key to be used
-    key_type: KeyType,
+    pub key_type: KeyType,
     /// The type of data held in the map
-    collection_type: CollectionType,    
+    pub collection_type: CollectionType,    
 }
 
 
@@ -373,6 +373,8 @@ pub fn make_key_exists_error(key: &str) -> ServerError {
 pub trait Storage {
     /// Gets the value for a key.
     fn get(&self, key: &str) -> Result<StorageElement, ServerError>;
+    /// Gets a mutable version
+    fn get_mut(&mut self, key: &str) -> Result<&mut StorageElement, ServerError>;
     /// Sets the value for a key.
     fn set(&mut self, key: &str, value: StorageElement) -> Result<(), ServerError>;
     /// Runs the policy on invalidating expired keys

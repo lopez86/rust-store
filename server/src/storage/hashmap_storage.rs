@@ -84,6 +84,15 @@ impl Storage for HashMapStorage {
         }
     }
 
+    /// Get a value or else throw an error.
+    fn get_mut(&mut self, key: &str) -> Result<&mut StorageElement, ServerError> {
+        match self.storage.get_mut(key) {
+            Some(value) if value.element.is_expired() => Err(make_key_error(key)),
+            Some(value) =>Ok(&mut value.element),
+            Err(error) => Err(error),
+        }
+    }
+
     /// Update the expiration time of an entry.
     fn update_expiration(
         &mut self, key: &str, expiration: Option<SystemTime>
