@@ -28,6 +28,7 @@ pub enum ServerError {
     RequestError(String),
 }
 
+/// Get the error codes associated with each internal error type.
 pub fn get_error_code(error: &ServerError) -> String {
     let err_string = match error {
         ServerError::KeyError(_) => "422 Unprocessible Entity",

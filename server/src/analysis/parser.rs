@@ -138,7 +138,7 @@ impl Parser {
     {
         let map_name = self.get_name_from_next_token()?;
         if self.is_at_end() {
-            return ServerError::ParseError("Expected map key after map name.".to_string());
+            return Err(ServerError::ParseError("Expected map key after map name.".to_string()));
         }
         let key = self.get_key_from_next_token()?;
         Ok(f(&map_name, key))
@@ -209,7 +209,7 @@ impl Parser {
     fn set_lifetime(&mut self) -> Result<Statement, ServerError> {
         let name = self.get_name_from_next_token()?;
         let lifetime = self.get_lifetime_from_next_token()?;
-        Ok(Statement::SetLifetime(name, lifetime))
+        Ok(Statement::UpdateLifetime(name, lifetime))
     }
 
     fn update(&mut self) -> Result<Statement, ServerError> {
@@ -275,7 +275,7 @@ impl Parser {
 
     fn get_name_from_next_token(&mut self) -> Result<String, ServerError> {
         if self.is_at_end() {
-            return ServerError::ParseError("Expected an identifier instead of the end of the query.".to_string());
+            return Err(ServerError::ParseError("Expected an identifier instead of the end of the query.".to_string()));
         }
         let token = self.advance();
         let map_name = match &token.token {
@@ -289,9 +289,9 @@ impl Parser {
         Ok(*map_name.clone())
     }
     
-    fn get_key_from_next_oken(&mut self) -> Result<StorageValue, ServerError> {
+    fn get_key_from_next_token(&mut self) -> Result<StorageValue, ServerError> {
         if self.is_at_end() {
-            return ServerError::ParseError("Expected an identifier instead of the end of the query.".to_string());
+            return Err(ServerError::ParseError("Expected an identifier instead of the end of the query.".to_string()));
         }
         let token = self.advance();
         match &token.token {
@@ -307,7 +307,7 @@ impl Parser {
     
     fn get_index_from_next_token(&mut self) -> Result<usize, ServerError> {
         if self.is_at_end() {
-            return ServerError::ParseError("Expected an identifier instead of the end of the query.".to_string());
+            return Err(ServerError::ParseError("Expected an identifier instead of the end of the query.".to_string()));
         }
         let token = self.advance();
         match token.token {
@@ -335,21 +335,21 @@ impl Parser {
 
     fn get_scalar_value_from_next_token(&mut self) -> Result<StorageValue, ServerError> {
         if self.is_at_end() {
-            return ServerError::ParseError("Expected an identifier instead of the end of the query.".to_string());
+            return Err(ServerError::ParseError("Expected an identifier instead of the end of the query.".to_string()));
         }
         let next_token = self.advance();
-        let storage_value = match next_token.token {
+        let storage_value = match &next_token.token {
             Token::Bool(value) => {
-                StorageValue::Bool(value)
+                StorageValue::Bool(*value)
             },
             Token::Integer(value) => {
-                StorageValue::Int(value)
+                StorageValue::Int(*value)
             },
             Token::Float(value) => {
-                StorageValue::Float(value)
+                StorageValue::Float(*value)
             },
-            Token::String(value) => {
-                StorageValue::String(value)
+            Token::StringValue(value) => {
+                StorageValue::String(*value.clone())
             },
             _ => return Err(ServerError::ParseError("Expected valid scalar value.".to_string())),
         };
@@ -357,40 +357,43 @@ impl Parser {
     }
 
     fn get_collection_value_from_next_token(&mut self) -> Result<StorageValue, ServerError> {
-        let type_token = self.advance();
+        let type_token = self.advance().clone();
         if self.is_at_statement_end() {
-            let collection_type = get_collection_type(type_token)?;
+            let collection_type = get_collection_type(&type_token.token)?;
             return Ok(StorageValue::Vector(StorageVector::new(collection_type)));
         }
 
-        let next_token = self.view();
+        let next_token = self.view().clone();
         let value = if is_collection_or_key_type(&next_token.token) {
             // We have a map
             self.advance();
-            let key_type = get_key_type(type_token)?;
+            let key_type = get_key_type(&type_token.token)?;
             let collection_type = get_collection_type(&next_token.token)?;
-            let map = if self.is_at_statement_end() | self.view().token != Token::LeftCurlyBracket {
+            let map = if self.is_at_statement_end() | (self.view().token != Token::LeftCurlyBracket) {
                 StorageValue::Map(StorageMap::new(key_type, collection_type))
             } else {
                 self.get_map_value(key_type, collection_type)?
             };
-        } else if let Token::LeftBracket = next_token.token{
+            map
+        } else if let Token::LeftBracket = next_token.token {
             let collection_type = get_collection_type(&type_token.token)?;
-            self.get_vector_value(collection_type)
+            self.get_vector_value(collection_type)?
+        } else {
+            return Err(ServerError::ParseError("Could not parse.".to_string()));
         };
         Ok(value)
     }
 
-    fn get_lifetime_from_next_token(&mut self) -> Result<Option<usize>, ServerError> {
+    fn get_lifetime_from_next_token(&mut self) -> Result<Option<u64>, ServerError> {
         if self.is_at_statement_end() {
             return Ok(None)
         }
         let value = self.advance();
         if let Token::Integer(value) = value.token {
             if value < 0 {
-                Err(ServerError::ParseError("Expected a positive integer as a lifetime.").to_string())
+                Err(ServerError::ParseError("Expected a positive integer as a lifetime.".to_string()))
             } else {
-                let unsigned_value: u64 = value;
+                let unsigned_value: u64 = value.try_into().unwrap();
                 Ok(Some(unsigned_value))
             }
         } else {
@@ -403,7 +406,7 @@ impl Parser {
             return Ok(StorageValue::Null);
         }
         let value = if is_collection_or_key_type(&self.view().token) {
-            self.get_collection_value_from_next_tokens()?
+            self.get_collection_value_from_next_token()?
         } else {
             self.get_scalar_value_from_next_token()?
         };
@@ -413,7 +416,7 @@ impl Parser {
     fn is_at_statement_end(&self) -> bool {
         if self.is_at_end() {
             true
-        } else if let Token::Semicolon = self.view() {
+        } else if let Token::Semicolon = self.view().token {
             true
         } else {
             false
@@ -421,7 +424,7 @@ impl Parser {
     }
 
     fn get_vector_value(&mut self, collection_type: CollectionType) -> Result<StorageValue, ServerError> {
-        let value = StorageVector::new(collection_type);
+        let mut value = StorageVector::new(collection_type);
         // We've already checked that the first character is a left bracket
         self.advance(); // [
         if let Token::RightBracket = self.view().token {
@@ -432,14 +435,14 @@ impl Parser {
             let element = self.get_scalar_value_from_next_token()?;
             value.push(element)?;
             if self.is_at_end() {
-                return ServerError::ParseError("Unfinished vector literal found.".to_string())
+                return Err(ServerError::ParseError("Unfinished vector literal found.".to_string()))
             }
             if let Token::RightBracket = self.view().token {
                 break;
             } else if let Token::Comma = self.view().token {
-                self.advance()
+                self.advance();
             } else {
-                return ServerError::ParseError("Unexpected token after vector element.".to_string())
+                return Err(ServerError::ParseError("Unexpected token after vector element.".to_string()));
             }
         }
         self.advance(); // ]
@@ -447,7 +450,7 @@ impl Parser {
     }
 
     fn get_map_value(&mut self, key_type: KeyType, collection_type: CollectionType) -> Result<StorageValue, ServerError> {
-        let value = StorageMap::new(key_type, collection_type);
+        let mut value = StorageMap::new(key_type, collection_type);
         // We've already checked that the first character is a left bracket
         self.advance(); // [
         if let Token::RightCurlyBracket = self.view().token {
@@ -457,20 +460,22 @@ impl Parser {
         loop {
             let element_key = self.get_scalar_value_from_next_token()?;
             if self.is_at_end() {
-                return ServerError::ParseError("Unfinished map literal found.".to_string())
+                return Err(ServerError::ParseError("Unfinished map literal found.".to_string()));
             }
             let colon = self.advance();
             if colon.token != Token::Colon {
-                return ServerError::ParseError("Expected colon after key.".to_string())
+                return Err(ServerError::ParseError("Expected colon after key.".to_string()));
             }
             let element_value = self.get_scalar_value_from_next_token()?;
-            value.set(element_key, element_value);
+            if let Err(_) = value.set(element_key, element_value) {
+                return Err(ServerError::ParseError("Could not add element to map.".to_string()));
+            }
             if let Token::RightCurlyBracket = self.view().token {
                 break;
             } else if let Token::Comma = self.view().token {
-                self.advance()
+                self.advance();
             } else {
-                return ServerError::ParseError("Unexpected token after key-value pair.".to_string())
+                return Err(ServerError::ParseError("Unexpected token after key-value pair.".to_string()));
             }
         }
         self.advance(); // ]

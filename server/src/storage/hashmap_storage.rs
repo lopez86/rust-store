@@ -89,7 +89,7 @@ impl Storage for HashMapStorage {
         match self.storage.get_mut(key) {
             Some(value) if value.element.is_expired() => Err(make_key_error(key)),
             Some(value) =>Ok(&mut value.element),
-            Err(error) => Err(error),
+            None => Err(ServerError::KeyError(format!("No item with index {} found.", key))),
         }
     }
 

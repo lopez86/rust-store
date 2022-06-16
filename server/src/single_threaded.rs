@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::auth::{AuthenticationResult, AuthenticationService, MockAuthenticator};
 use crate::error::ServerError;
 use crate::io::stream::{StreamHandler, StreamRequest};
@@ -5,6 +7,7 @@ use crate::analysis::{Interpreter, InterpreterRequest, InterpreterResponse, Pars
 use crate::storage::hashmap_storage::HashMapStorage;
 use crate::storage::Storage;
 
+/// A server to run everything in a single thread with no async - just loops and runs
 pub struct SingleThreadedServer<Auth, Stor>
     where
         Auth: AuthenticationService,
@@ -17,15 +20,18 @@ pub struct SingleThreadedServer<Auth, Stor>
 
 impl<Auth: AuthenticationService, Stor: Storage + Send> SingleThreadedServer<Auth, Stor> {
     /// Start running the server.
-    pub fn serve<H: StreamHandler>(&mut self, stream_handler: H) {
-        while let request = stream_handler.receive_request() {
+    pub fn serve<H: StreamHandler>(&mut self, mut stream_handler: H) {
+        loop {
+            println!("Ready to receive request.");
+            let request = stream_handler.receive_request();
             if let None = request {
                 println!("Stream has closed. Shutting down.");
                 break;
             }
             let request: StreamRequest = request.unwrap();
-            let (response, shut_down) = self.handle_request(&request);
-            if let Some(sender) = request.sender {
+            let StreamRequest{request, sender, headers} = request;
+            let (response, shut_down) = self.handle_request(request, headers);
+            if let Some(mut sender) = sender{
                 let res = sender.send(response);
                 match res {
                     Ok(_) => (),
@@ -40,8 +46,11 @@ impl<Auth: AuthenticationService, Stor: Storage + Send> SingleThreadedServer<Aut
     }
     
     /// Handle a single stream request to the server. 
-    fn handle_request(&mut self, request: &StreamRequest) -> (Result<InterpreterResponse, ServerError>, bool) {
-        let authentication = self.authenticator.authenticate(&(request.headers));
+    fn handle_request(&mut self, request: Result<String, ServerError>, headers: HashMap<String, String>) -> (Result<InterpreterResponse, ServerError>, bool) {
+        println!("Handling request");
+        println!("Headers {:?}", headers);
+        let authentication = self.authenticator.authenticate(&headers);
+        println!("Done with authentication. {:?}", authentication);
         let (username, authorization)= match authentication {
             Ok(AuthenticationResult::Authenticated(username, level)) => (username, level),
             Ok(AuthenticationResult::Unauthenticated) => {
@@ -61,18 +70,18 @@ impl<Auth: AuthenticationService, Stor: Storage + Send> SingleThreadedServer<Aut
             },
             Some(auth) => auth,
         };
-        if let Err(error) = request.request {
-            return (Err(error), false);
+        if let Err(error) = &request {
+            return (Err(error.clone()), false);
         }
-        let request_string = &request.request.unwrap();
+        let request_string = request.unwrap();
 
-        let tokenizer = Tokenizer::new(&request_string);
+        let mut tokenizer = Tokenizer::new(&request_string);
         let tokens = tokenizer.tokenize();
         if let Err(error) = tokens {
             return (Err(error), false);
         }
         let tokens = tokens.unwrap();
-        let parser = Parser::new(tokens);
+        let mut parser = Parser::new(tokens);
         let statements = parser.parse();
         if let Err(error) = statements {
             return (Err(error), false)

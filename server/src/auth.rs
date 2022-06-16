@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use crate::error::ServerError;
 
 
+/// The result from the authentication service.
 #[derive(Clone, PartialEq, Debug)]
 pub enum AuthenticationResult {
     /// Authentication passed, return a user id and authorization level
@@ -11,11 +12,13 @@ pub enum AuthenticationResult {
     Unauthenticated,
 }
 
+/// Trait for a generic authentication and authorization service.
 pub trait AuthenticationService {
     /// Try to authenticate a request using the request headers
     fn authenticate(&mut self, headers: &HashMap<String, String>) -> Result<AuthenticationResult, ServerError>;
 }
 
+/// Defines the different kinds of authorizations a user can have.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum AuthorizationLevel {
     /// Administrator level - can run anything

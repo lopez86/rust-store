@@ -1,4 +1,4 @@
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
 
@@ -37,14 +37,22 @@ pub struct InterpreterRequest {
     pub authorization: AuthorizationLevel,
 }
 
+/// Output type for asking for values.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub enum ValueType {
+    /// A null value (nothing)
     Null,
+    /// A boolean value
     Bool,
+    /// An integer value
     Int,
+    /// A floating point value
     Float,
+    /// A string value
     String,
+    /// A vector collection
     Vector(CollectionType),
+    /// A map collection
     Map(KeyType, CollectionType),
 }
 
@@ -84,64 +92,71 @@ impl<S: Storage + Send> Interpreter<S> {
     }
 
     /// Interpret a request
-    pub fn interpret(&mut self, _request: InterpreterRequest) -> Result<InterpreterResponse, ServerError> {
-        Err(ServerError::InternalError("Not implemented yet.".to_string()))
+    pub fn interpret(&mut self, request: InterpreterRequest) -> Result<InterpreterResponse, ServerError> {
+        let InterpreterRequest{statements, authorization} = request;
+        self.process_statements(statements, authorization)
     }
 
-    
+    /// Validate the statements in a request and run them.
     fn process_statements(
-        &mut self, statements: &Vec<Statement>, authorization: AuthorizationLevel
+        &mut self, statements: Vec<Statement>, authorization: AuthorizationLevel
     ) -> Result<InterpreterResponse, ServerError> {
-        validate_authorization(statements, authorization)?;
-        let mut final_response: Result<InterpreterResponse, ServerError>;
-        let mut keep_going = true;
+        validate_authorization(&statements, authorization)?;
+        let mut final_response: Result<InterpreterResponse, ServerError> = Ok(InterpreterResponse::Null);
         for statement in statements {
             final_response = self.process_statement(statement);
             if let Ok(InterpreterResponse::ShuttingDown) = final_response {
                 break;
             }
-            if let Err(error) = final_response {
+            if let Err(_) = final_response {
                 break;
             }
         }
         final_response
     }
 
+    /// Process a single statement.
     fn process_statement(
-        &mut self, statement: &Statement
+        &mut self, statement: Statement
     ) -> Result<InterpreterResponse, ServerError> {
         match statement {
             Statement::Shutdown => return Ok(InterpreterResponse::ShuttingDown),
             Statement::Null => return Ok(InterpreterResponse::Null),
-            Statement::Get(key) => return self.get(key),
-            Statement::Exists(key) => return self.exists(key),
-            Statement::GetIfExists(key) => return self.get_if_exists(key),
-            Statement::GetLifetime(key) => return self.get_lifetime(key),
+            Statement::Get(key) => return self.get(&key),
+            Statement::Exists(key) => return self.exists(&key),
+            Statement::GetIfExists(key) => return self.get_if_exists(&key),
+            Statement::GetLifetime(key) => return self.get_lifetime(&key),
             Statement::ExpireKeys => return self.expire_keys(),
-            Statement::Delete(key) => return self.delete(key),
-            Statement::Set(key, value, lifetime) => return self.set(key, value, lifetime),
-            Statement::SetIfNotExists(key, value, lifetime) => return self.set(key, value, lifetime),
-            Statement::Update(key, value, lifetime) => return self.update(key, value, lifetime),
-            Statement::UpdateLifetime(key, lifetime) => return self.update_lifetime(key, lifetime),
-            Statement::VectorGet(key, index) => return self.vector_get(key, index),
-            Statement::VectorLength(key) => return self.vector_length(key),
-            Statement::VectorAppend(key, value) => return self.vector_append(key, value),
-            Statement::VectorPop(key) => return self.vector_pop(key),
-            Statement::VectorSet(key, index, value) => return self.vector_set(key, index, value),
-            Statement::MapGet(key, element_key) => return self.map_get(key, element_key),
-            Statement::MapExists(key, element_key) => return self.map_exists(key, element_key),
-            Statement::MapLength(key) => return self.map_length(key),
-            Statement::MapDelete(key, element_key) => return self.map_delete(key, element_key),
-            Statement::MapSet(key, element_key, value) => return self.map_set(key, element_key, value),
-            Statement::ValueType(key) => return self.value_type(key),
+            Statement::Delete(key) => return self.delete(&key),
+            Statement::Set(key, value, lifetime) => return self.set(&key, value, lifetime),
+            Statement::SetIfNotExists(key, value, lifetime) => {
+                return self.set_if_not_exists(&key, value, lifetime)
+            },
+            Statement::Update(key, value, lifetime) => return self.update(&key, value, lifetime),
+            Statement::UpdateLifetime(key, lifetime) => return self.update_expiration(&key, lifetime),
+            Statement::VectorGet(key, index) => return self.vector_get(&key, index),
+            Statement::VectorLength(key) => return self.vector_length(&key),
+            Statement::VectorAppend(key, value) => return self.vector_append(&key, value),
+            Statement::VectorPop(key) => return self.vector_pop(&key),
+            Statement::VectorSet(key, index, value) => return self.vector_set(&key, index, value),
+            Statement::MapGet(key, element_key) => return self.map_get(&key, &element_key),
+            Statement::MapExists(key, element_key) => return self.map_exists(&key, &element_key),
+            Statement::MapLength(key) => return self.map_length(&key),
+            Statement::MapDelete(key, element_key) => return self.map_delete(&key, &element_key),
+            Statement::MapSet(key, element_key, value) => {
+                return self.map_set(&key, element_key, value)
+            },
+            Statement::ValueType(key) => return self.value_type(&key),
         }
     }
 
+    /// Get the value of an item
     fn get(&self, key: &StorageKey) -> Result<InterpreterResponse, ServerError> {
         let result = self.storage.get(key)?;
-        Ok(InterpreterResponse::Value(result))
+        Ok(InterpreterResponse::Value(result.value))
     }
 
+    /// Get the value type of an item
     fn value_type(&self, key: &StorageKey) -> Result<InterpreterResponse, ServerError> {
         let result = self.storage.get(key)?;
         let result = match result.value {
@@ -160,16 +175,23 @@ impl<S: Storage + Send> Interpreter<S> {
         Ok(InterpreterResponse::ValueType(result))
     }
 
+    /// See if a key exists in the storage container
     fn exists(&self, key: &StorageKey) -> Result<InterpreterResponse, ServerError> {
         let result = self.storage.contains_key(key)?;
         Ok(InterpreterResponse::Bool(result))
     }
 
+    /// Get a value only if it exists
     fn get_if_exists(&self, key: &StorageKey) -> Result<InterpreterResponse, ServerError> {
-        let result = self.storage.get(key)?;
-        Ok(InterpreterResponse::Value(result))
+        let result = self.storage.get_if_exists(key)?;
+        match result {
+            Some(element) => Ok(InterpreterResponse::Value(element.value)),
+            None => Ok(InterpreterResponse::Value(StorageValue::Null)),
+
+        }
     }
 
+    /// Get the lifetime if any of an item
     fn get_lifetime(&self, key: &StorageKey) -> Result<InterpreterResponse, ServerError> {
         let current_time = SystemTime::now();
         let result = self.storage.get(key)?;
@@ -178,55 +200,78 @@ impl<S: Storage + Send> Interpreter<S> {
             Some(timestamp) => {
                 let difference = timestamp.duration_since(current_time);
                 match difference {
-                    Err(_) => return ServerError::IndexError(format!("No entry found for key {}", key)),
-                    Some(diff) => diff.as_secs(),
+                    Err(_) => return Err(ServerError::IndexError(format!("No entry found for key {}", key))),
+                    Ok(diff) => Some(diff.as_secs()),
                 }
             },
         };
         Ok(InterpreterResponse::Expiration(result))
     }
 
+    /// Run the key expiration policy
     fn expire_keys(&mut self) -> Result<InterpreterResponse, ServerError> {
         let result = self.storage.invalidate_expired_keys()?;
         Ok(InterpreterResponse::Size(result))
     }
 
+    /// Delete a key from the storage
     fn delete(&mut self, key: &StorageKey) -> Result<InterpreterResponse, ServerError> {
         let result = self.storage.delete(key)?;
         Ok(InterpreterResponse::Bool(result))
     }
 
+    /// Set the value for a key
     fn set(
-        &mut self, key: &StorageKey, value: &StorageValue, expiration: Option<u64>
+        &mut self, key: &StorageKey, value: StorageValue, expiration: Option<u64>
     ) -> Result<InterpreterResponse, ServerError> {
-        let element = StorageElement{key, value, expiration};
-        let result = self.storage.set(key, element)?;
+        let expiration = match expiration {
+            None => None,
+            Some(time) => Some(SystemTime::now() + Duration::from_secs(time)),
+        };
+        let element = StorageElement{key: key.to_string(), value, expiration};
+        self.storage.set(key, element)?;
         Ok(InterpreterResponse::Message("Ok".to_string()))
     }
 
+    /// Set the value for a key only if it doesn't already exist
     fn set_if_not_exists(
-        &mut self, key: &StorageKey, value: &StorageValue, expiration: Option<u64>
+        &mut self, key: &StorageKey, value: StorageValue, expiration: Option<u64>
     ) -> Result<InterpreterResponse, ServerError> {
-        let element = StorageElement{key, value, expiration};
+        let expiration = match expiration {
+            None => None,
+            Some(time) => Some(SystemTime::now() + Duration::from_secs(time)),
+        };
+        let element = StorageElement{key: key.to_string(), value, expiration};
         let result = self.storage.set_if_not_exists(key, element)?;
         Ok(InterpreterResponse::Bool(result))
     }
 
+    /// Update the information for a key that already exists
     fn update(
-        &mut self, key: &StorageKey, value: &StorageValue, expiration: Option<u64>
+        &mut self, key: &StorageKey, value: StorageValue, expiration: Option<u64>
     ) -> Result<InterpreterResponse, ServerError> {
-        let element = StorageElement{key, value, expiration};
-        let result = self.storage.update(key, element)?;
+        let expiration = match expiration {
+            None => None,
+            Some(time) => Some(SystemTime::now() + Duration::from_secs(time)),
+        };
+        let element = StorageElement{key: key.to_string(), value, expiration};
+        self.storage.update(key, element)?;
         Ok(InterpreterResponse::Message("Ok".to_string()))
     }
 
+    /// Update the expiration time of a key that already exists
     fn update_expiration(
         &mut self, key: &StorageKey, expiration: Option<u64>
     ) -> Result<InterpreterResponse, ServerError> {
-        let result = self.storage.update_expiration(key, expiration)?;
+        let expiration = match expiration {
+            None => None,
+            Some(time) => Some(SystemTime::now() + Duration::from_secs(time)),
+        };
+        self.storage.update_expiration(key, expiration)?;
         Ok(InterpreterResponse::Message("Ok".to_string()))
     }
 
+    /// Get an element if it is expected to be a vector
     fn get_vector_element(&mut self, key: &StorageKey) -> Result<StorageVector, ServerError> {
         let element = self.storage.get(key)?;
         if let StorageValue::Vector(vector) = element.value {
@@ -236,6 +281,7 @@ impl<S: Storage + Send> Interpreter<S> {
         }
     }
 
+    /// Get an element if it is expected to be a map.
     fn get_map_element(&mut self, key: &StorageKey) -> Result<StorageMap, ServerError> {
         let element = self.storage.get(key)?;
         if let StorageValue::Map(map) = element.value {
@@ -245,24 +291,27 @@ impl<S: Storage + Send> Interpreter<S> {
         }
     } 
 
+    /// Get a mutable reference to an element if it is a vector
     fn get_vector_element_mut(&mut self, key: &StorageKey) -> Result<&mut StorageVector, ServerError> {
         let element = self.storage.get_mut(key)?;
-        if let StorageValue::Vector(&mut vector) = element.value {
+        if let StorageValue::Vector(vector) = &mut element.value {
             Ok(vector)
         } else {
             Err(ServerError::TypeError(format!("Element with key '{}' not a vector.", key)))
         }
     }
 
+    /// Get a mutable reference to an element if it is a map.
     fn get_map_element_mut(&mut self, key: &StorageKey) -> Result<&mut StorageMap, ServerError> {
         let element = self.storage.get_mut(key)?;
-        if let StorageValue::Map(&mut map) = element.value {
+        if let StorageValue::Map(map) = &mut element.value {
             Ok(map)
         } else {
             Err(ServerError::TypeError(format!("Element with key '{}' not a map.", key)))
         }
     } 
 
+    /// Get a single value from a vector
     fn vector_get(
         &mut self, key: &StorageKey, index: usize
     ) -> Result<InterpreterResponse, ServerError> {
@@ -271,6 +320,7 @@ impl<S: Storage + Send> Interpreter<S> {
         Ok(InterpreterResponse::Value(value.clone()))
     }
     
+    /// Get the length of a vector
     fn vector_length(
         &mut self, key: &StorageKey
     ) -> Result<InterpreterResponse, ServerError> {
@@ -278,6 +328,7 @@ impl<S: Storage + Send> Interpreter<S> {
         Ok(InterpreterResponse::Size(vector.len()))
     }
 
+    /// Append a value to a vector
     fn vector_append(
         &mut self, key: &StorageKey, value: StorageValue
     ) -> Result<InterpreterResponse, ServerError> {
@@ -286,6 +337,7 @@ impl<S: Storage + Send> Interpreter<S> {
         Ok(InterpreterResponse::Message("Ok".to_string()))
     }
 
+    /// Pop a value from the back of a vector
     fn vector_pop(
         &mut self, key: &StorageKey
     ) -> Result<InterpreterResponse, ServerError> {
@@ -295,9 +347,10 @@ impl<S: Storage + Send> Interpreter<S> {
             None => StorageValue::Null,
             Some(value) => value,
         };
-        Ok(InterpreterResponse::Value(value))
+        Ok(InterpreterResponse::Value(value_response))
     }
 
+    /// Set a single value in a vector
     fn vector_set(
         &mut self, key: &StorageKey, index: usize, value: StorageValue
     ) -> Result<InterpreterResponse, ServerError> {
@@ -306,6 +359,7 @@ impl<S: Storage + Send> Interpreter<S> {
         Ok(InterpreterResponse::Message("Ok".to_string()))
     }
 
+    /// Get a single element of a map
     fn map_get(
         &mut self, key: &StorageKey, map_key: &StorageValue
     ) -> Result<InterpreterResponse, ServerError> {
@@ -314,6 +368,7 @@ impl<S: Storage + Send> Interpreter<S> {
         Ok(InterpreterResponse::Value(value.clone()))
     }
 
+    /// Get the number of elements in a map
     fn map_length(
         &mut self, key: &StorageKey
     ) -> Result<InterpreterResponse, ServerError> {
@@ -321,6 +376,7 @@ impl<S: Storage + Send> Interpreter<S> {
         Ok(InterpreterResponse::Size(map.len()))
     }
 
+    /// See if an element exists in a map
     fn map_exists(
         &mut self, key: &StorageKey, map_key: &StorageValue
     ) -> Result<InterpreterResponse, ServerError> {
@@ -329,16 +385,16 @@ impl<S: Storage + Send> Interpreter<S> {
         Ok(InterpreterResponse::Bool(result))
     }
 
-    
+    /// Set the value for an element in a map
     fn map_set(
         &mut self, key: &StorageKey, map_key: StorageValue, value: StorageValue
     ) -> Result<InterpreterResponse, ServerError> {
         let map = self.get_map_element_mut(key)?;
-        let result = map.set(map_key, value)?;
+        map.set(map_key, value)?;
         Ok(InterpreterResponse::Message("Ok".to_string()))
     }
 
-    
+    /// Delete an element in a map
     fn map_delete(
         &mut self, key: &StorageKey, map_key: &StorageValue
     ) -> Result<InterpreterResponse, ServerError> {
@@ -349,10 +405,11 @@ impl<S: Storage + Send> Interpreter<S> {
 }
 
 
+/// Validate that a statement is available at the given authorization level.
 fn validate_authorization(
     statements: &Vec<Statement>, authorization: AuthorizationLevel
 ) -> Result<(), ServerError> {
-    let is_authorized = true;
+    let mut is_authorized = true;
     for statement in statements.iter() {
         is_authorized = match statement {
             Statement::Shutdown => authorization == AuthorizationLevel::Admin,
