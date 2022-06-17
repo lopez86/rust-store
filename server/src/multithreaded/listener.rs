@@ -54,12 +54,15 @@ impl<T: StreamHandler + Send + 'static, A: AuthenticationService + Send + 'stati
                     }
                 );
                 loop {
+                    // Non async way to make sure we shut down without waiting forever since the listener
+                    // doesn't necessarily have any timeouts, ugly but seems to work
                     if join_handle.is_finished() {
                         break;
                     }
                     if self.check_for_shutdown() {
                         return;
                     }
+                    // Probably this is too short
                     thread::sleep(Duration::from_millis(1));
                 }
                 match join_handle.join() {

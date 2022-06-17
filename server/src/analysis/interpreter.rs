@@ -30,6 +30,7 @@ pub enum Privileges {
 }
 
 /// A request to the interpreter
+#[derive(Clone, Debug)]
 pub struct InterpreterRequest {
     /// The statement to be processed
     pub statements: Vec<Statement>,

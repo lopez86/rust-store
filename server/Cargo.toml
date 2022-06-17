@@ -11,6 +11,10 @@ path = "src/simple.rs"
 name = "multi_server"
 path = "src/multi.rs"
 
+[[bin]]
+name = "async_server"
+path = "src/async.rs"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -18,4 +22,4 @@ rand = "0.8.5"
 serde = {version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 httparse = "1.7.1"
-tokio = "1.19.2"
+tokio = {version = "1.19.2", features = ["full"] }
