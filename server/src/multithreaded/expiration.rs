@@ -39,7 +39,7 @@ impl ExpirationWorker {
                 request: InterpreterRequest {
                     statements: vec![Statement::ExpireKeys], authorization: AuthorizationLevel::Admin
                 },
-                stream_sender: None,
+                sender: None,
             };
             self.channel.send(request).unwrap();
         }

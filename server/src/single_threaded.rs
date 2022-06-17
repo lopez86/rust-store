@@ -47,10 +47,7 @@ impl<Auth: AuthenticationService, Stor: Storage + Send> SingleThreadedServer<Aut
     
     /// Handle a single stream request to the server. 
     fn handle_request(&mut self, request: Result<String, ServerError>, headers: HashMap<String, String>) -> (Result<InterpreterResponse, ServerError>, bool) {
-        println!("Handling request");
-        println!("Headers {:?}", headers);
         let authentication = self.authenticator.authenticate(&headers);
-        println!("Done with authentication. {:?}", authentication);
         let (username, authorization)= match authentication {
             Ok(AuthenticationResult::Authenticated(username, level)) => (username, level),
             Ok(AuthenticationResult::Unauthenticated) => {

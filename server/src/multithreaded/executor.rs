@@ -14,15 +14,13 @@ pub struct ExecutorRequest {
     /// The interpreter request
     pub request: InterpreterRequest,
     /// The channel to send a response
-    pub stream_sender: Option<Box<dyn StreamSender + Send>>,
+    pub sender: Sender<ExecutorResponse>,
 }
 
 /// The response to send back to the requesting channel
 pub struct ExecutorResponse {
     /// The result from the interpreter
     pub response: Result<InterpreterResponse, ServerError>,
-    /// The object to process and send back responses
-    pub stream_sender: Option<Box<dyn StreamSender + Send>>,
 }
 
 /// An executor sends requests to the interpreter from an open channel and returns responses.
@@ -31,8 +29,6 @@ pub struct Executor{
     interpreter: Interpreter<HashMapStorage>,
     /// The channel handling all requests - many sender/single receiver
     request_channel: Receiver<ExecutorRequest>,
-    /// The channel to send responses
-    response_channel: Sender<ExecutorResponse>,
     /// A flag to set to shut down all workers prior to shutting down the executor
     start_shutdown_flag: Arc<AtomicBool>,
     /// A flag set to shut down the executor for clean shutdown
@@ -44,20 +40,18 @@ pub struct Executor{
 impl Executor {
     /// Execute a request
     fn execute(&mut self, request: ExecutorRequest) -> bool {
-        let ExecutorRequest{request, stream_sender} = request;
+        let ExecutorRequest{request, sender} = request;
         let interpreter_response = self.interpreter.interpret(request);
         let keep_going = match interpreter_response {
             Ok(InterpreterResponse::ShuttingDown) => false,
             _ => true,
         };
-        let executor_response = ExecutorResponse{response: interpreter_response, stream_sender};
-        self.send_response(executor_response);
+        let executor_response = ExecutorResponse{response: interpreter_response};
+        match sender.send(executor_response) {
+            Ok(()) => (),
+            Err(err) => println!("Error sending response back to listener."),
+        }
         keep_going
-    }
-
-    /// Send a response to the responder pool for final processing and sending
-    fn send_response(&mut self, response: ExecutorResponse) {
-        self.response_channel.send(response);
     }
 
     /// Loop until told to shut down.

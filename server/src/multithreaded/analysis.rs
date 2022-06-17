@@ -11,9 +11,9 @@ use crate::io::stream::StreamSender;
 use crate::multithreaded::executor::{ExecutorRequest, ExecutorResponse};
 
 pub struct AnalysisRequest {
-    request: Result<String, ServerError>,
+    request: String,
     authorization: AuthorizationLevel,
-    stream_sender: Option<Box<dyn StreamSender + Send>>,
+    sender: Sender<ExecutorResponse>,
 }
 
 
@@ -21,7 +21,6 @@ pub struct AnalysisRequest {
 pub struct AnalysisWorker {
     receive_channel: Arc<Mutex<Receiver<AnalysisRequest>>>,
     send_channel: Sender<ExecutorRequest>,
-    error_channel: Sender<ExecutorResponse>,
     shutdown_signal: Arc<AtomicBool>,
     receive_deadline: Duration,
     thread: Option<JoinHandle<()>>,
@@ -36,9 +35,9 @@ impl AnalysisWorker {
         }
     }
 
-    fn send_error(&mut self, error: ServerError, stream_sender: Option<Box<dyn StreamSender + Send>>) {
-        let response = ExecutorResponse{response: Err(error), stream_sender};
-        let send_result = self.error_channel.send(response);
+    fn send_error(&mut self, error: ServerError, error_sender: Sender<ExecutorResponse>) {
+        let response = ExecutorResponse{response: Err(error)};
+        let send_result = error_sender.send(response);
         if let Err(error) = send_result {
             println!("{:?}", error);
         }
@@ -52,11 +51,11 @@ impl AnalysisWorker {
     }
 
     fn analyze_request(&mut self, request: AnalysisRequest) {
-        let AnalysisRequest{request, authorization, stream_sender} = request;
+        let AnalysisRequest{request, authorization, sender} = request;
         let request_string = match request {
             Ok(request_string) => request_string,
             Err(error) => {
-                self.send_error(error, stream_sender);
+                self.send_error(error, sender);
                 return;
             }
         };
@@ -64,11 +63,11 @@ impl AnalysisWorker {
         match statements {
             Ok(statements) => {
                 let interpreter_request = InterpreterRequest{statements, authorization};
-                let exec_request = ExecutorRequest{request: interpreter_request, stream_sender};
+                let exec_request = ExecutorRequest{request: interpreter_request, sender};
                 self.send_response(exec_request);
             },
             Err(error) => {
-                self.send_error(error, stream_sender);
+                self.send_error(error, sender);
             }
         }
 

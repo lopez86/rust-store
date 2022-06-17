@@ -9,8 +9,8 @@ pub mod executor;
 pub mod expiration;
 /// The main coordinating worker
 pub mod coordinator;
-/// Main endpoint for sending out responses
-pub mod responder;
+/// Listen for requests and send responses
+pub mod listener;
 
 
 pub trait Worker {
