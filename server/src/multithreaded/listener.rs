@@ -11,6 +11,7 @@ use crate::io::stream::{StreamHandler, StreamSender};
 use crate::analysis::InterpreterResponse;
 use crate::multithreaded::executor::ExecutorResponse;
 use crate::multithreaded::analysis::AnalysisRequest;
+use crate::io::stream::StreamRequest;
 
 
 /// A worker to listen for TCP connections and send off requests to the analyzer.
@@ -41,12 +42,33 @@ impl<T: StreamHandler + Send + 'static, A: AuthenticationService + Send + 'stati
                 break;
             }
             let result = {
-                let mut lock = self.receive_channel.try_lock();
-                let handler = match lock {
-                    Ok(ref mut handler) => handler,
-                    Err(_) => continue,
-                };
-                handler.receive_request()
+                let receive_channel = Arc::clone(&self.receive_channel);
+                let join_handle = thread::spawn(
+                    move || -> Option<StreamRequest> {
+                        let mut lock = receive_channel.try_lock();
+                        let handler = match lock {
+                            Ok(ref mut handler) => handler,
+                            Err(_) => return None,
+                        };
+                        handler.receive_request()
+                    }
+                );
+                loop {
+                    if join_handle.is_finished() {
+                        break;
+                    }
+                    if self.check_for_shutdown() {
+                        return;
+                    }
+                    thread::sleep(Duration::from_millis(1));
+                }
+                match join_handle.join() {
+                    Ok(res) => res,
+                    Err(err) => {
+                        println!("Error reading from stream. {:?}", err);
+                        continue;
+                    }
+                }
             };
 
             let request = match result {
@@ -129,6 +151,7 @@ impl<T: StreamHandler + Send + 'static, A: AuthenticationService + Send + 'stati
 
     /// Start the worker
     pub fn start(&mut self) {
+        println!("Starting listener worker.");
         let mut temp_worker: ListenerWorker<T, A> = ListenerWorker {
             receive_channel: Arc::clone(&self.receive_channel),
             receive_timeout: self.receive_timeout.clone(),
@@ -188,6 +211,7 @@ impl<H: StreamHandler + Send + 'static, A: AuthenticationService + Send + 'stati
 
     /// Start the pool
     pub fn start(&mut self) {
+        println!("Starting listener pool.");
         for worker in self.workers.iter_mut() {
             worker.start();
         }
@@ -195,6 +219,7 @@ impl<H: StreamHandler + Send + 'static, A: AuthenticationService + Send + 'stati
 
     /// Stop the pool
     pub fn stop(&mut self) {
+        println!("Shutting down listener pool.");
         self.shutdown_signal.swap(true, Ordering::Relaxed);
         for worker in self.workers.iter_mut() {
             worker.stop();

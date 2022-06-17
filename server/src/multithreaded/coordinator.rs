@@ -29,7 +29,8 @@ pub struct Coordinator {
 
 
 impl Coordinator
-{   /// Create a new Coordinator
+{
+    /// Create a new Coordinator
     pub fn new(listeners: usize, analyzers: usize, ip_addr: IpAddr, port: usize) -> Coordinator {
         let handler = TcpStreamHandler::new(ip_addr, port);
         let handler = Arc::new(Mutex::new(handler));
@@ -67,9 +68,11 @@ impl Coordinator
         self.analysis_pool.start();
         self.listener_pool.start();
         self.expiration.start();
+        println!("Ready for requests.");
         loop {
             thread::sleep(Duration::from_secs(1));
             if self.check_for_shutdown() {
+                println!("Shutdown signal received.");
                 self.stop();
                 break;
             }

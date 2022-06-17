@@ -70,6 +70,7 @@ impl ExpirationWorker {
 
     /// Spawn a thread
     pub fn start(&mut self) {
+        println!("Starting expiration worker.");
         let mut temp_worker = ExpirationWorker {
             channel: self.channel.clone(),
             ncalls: self.ncalls,

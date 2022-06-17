@@ -132,7 +132,10 @@ impl Storage for HashMapStorage {
 
     /// Get a random key from the database.
     fn invalidate_expired_keys(&mut self) -> Result<usize, ServerError> {
-        let key = self.get_random_key().unwrap().clone();
+        let key = match self.get_random_key() {
+            Some(key) => key.clone(),
+            None => return Ok(0),
+        };
         match self.check_and_expire(&key) {
             Ok(true) => Ok(1),
             Ok(false) => Ok(0),

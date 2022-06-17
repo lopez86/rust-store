@@ -89,6 +89,7 @@ impl Parser {
             Token::Set => self.set(),
             Token::SetIfNotExists => self.set_if_not_exists(),
             Token::SetLifetime => self.set_lifetime(),
+            Token::Shutdown => self.shutdown(),
             Token::Update => self.update(),
             Token::ValueType => self.value_type(),
             Token::VectorAppend => self.vector_append(),
@@ -211,6 +212,11 @@ impl Parser {
         let lifetime = self.get_lifetime_from_next_token()?;
         Ok(Statement::UpdateLifetime(name, lifetime))
     }
+
+    fn shutdown(&mut self) -> Result<Statement, ServerError> {
+        Ok(Statement::Shutdown)
+    }
+
 
     fn update(&mut self) -> Result<Statement, ServerError> {
         let name = self.get_name_from_next_token()?;

@@ -111,6 +111,7 @@ impl AnalysisWorker {
 
     /// Start the worker
     pub fn start(&mut self) {
+        println!("Starting analysis worker.");
         let mut temp_worker = AnalysisWorker {
             receive_channel: Arc::clone(&self.receive_channel),
             send_channel: self.send_channel.clone(),
@@ -167,6 +168,7 @@ impl AnalysisPool {
 
     /// Start the pool
     pub fn start(&mut self) {
+        println!("Starting analysis pool.");
         for worker in self.workers.iter_mut() {
             worker.start();
         }
@@ -174,6 +176,7 @@ impl AnalysisPool {
 
     /// Stop the pool
     pub fn stop(&mut self) {
+        println!("Shutting down analysis pool.");
         self.shutdown_signal.swap(true, Ordering::Relaxed);
         for worker in self.workers.iter_mut() {
             worker.stop();

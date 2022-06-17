@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread::{self, JoinHandle};
+use std::time::Duration;
 
 use crate::analysis::{Interpreter, InterpreterRequest, InterpreterResponse};
 use crate::error::ServerError;
@@ -32,6 +33,8 @@ pub struct Executor{
     start_shutdown_flag: Arc<AtomicBool>,
     /// A flag set to shut down the executor for clean shutdown
     shutdown_flag: Arc<AtomicBool>,
+    /// Timeout for receiving a result
+    timeout: Duration,
     /// The thread handle
     thread: Option<JoinHandle<()>>
 }
@@ -44,6 +47,7 @@ impl Executor {
             request_channel: Arc::new(Mutex::new(request_channel)),
             start_shutdown_flag,
             shutdown_flag: Arc::new(AtomicBool::new(false)),
+            timeout: Duration::from_secs(1),
             thread: None,
         }
 
@@ -70,32 +74,34 @@ impl Executor {
     /// Loop until told to shut down.
     pub fn run(&mut self) {
         loop {
-            let request = self.request_channel.try_lock().unwrap().recv();
+            if self.shutdown_flag.load(Ordering::Relaxed) {
+                println!("Shutting down the executor.");
+                break;
+            }
+            let request = self.request_channel.try_lock().unwrap().recv_timeout(self.timeout);
             let request = match request {
                 Ok(request) => request,
-                Err(err) => {
-                    println!("Got recv error {:?}", err);
-                    continue;
+                Err(_) => {
+                    continue; // A timeout error
                 }
             };
             let keep_going = self.execute(request);
             if !keep_going {
                 self.start_shutdown_flag.swap(true, Ordering::Relaxed);
             }
-            if self.shutdown_flag.load(Ordering::Relaxed) {
-                println!("Shutting down the executor.");
-                break;
-            }
+
         }
     }
 
     /// Start the worker
     pub fn start(&mut self) {
+        println!("Starting executor.");
         let mut temp_worker = Executor{
             interpreter: Arc::clone(&self.interpreter),
             request_channel: Arc::clone(&self.request_channel),
             start_shutdown_flag: Arc::clone(&self.start_shutdown_flag),
             shutdown_flag: Arc::clone(&self.shutdown_flag ),
+            timeout: self.timeout.clone(),
             thread: None,
         };
         let join_handle = thread::spawn(move || {

@@ -35,6 +35,8 @@ pub fn get_word_to_token_map() -> HashMap<String, Token> {
         ("bool".to_string(), Token::BoolType),
         ("vec".to_string(), Token::VectorType),
         ("map".to_string(), Token::MapType),
+        // Admin functions
+        ("shutdown".to_string(), Token::Shutdown),
     ])
 }
 
@@ -70,6 +72,8 @@ pub enum Token {
     GetOrNone,
     /// Set only if it doesn't exist
     SetIfNotExists,
+    /// Shut down the server
+    Shutdown,
     /// Null value
     None,
     /// Beginning of a list
