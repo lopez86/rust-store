@@ -3,6 +3,14 @@ name = "server"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "simple_server"
+path = "src/simple.rs"
+
+[[bin]]
+name = "multi_server"
+path = "src/multi.rs"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]

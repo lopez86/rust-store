@@ -8,3 +8,5 @@ pub mod expiration;
 pub mod coordinator;
 /// Listen for requests and send responses
 pub mod listener;
+
+pub use coordinator::Coordinator;
