@@ -32,6 +32,16 @@ pub struct ExpirationWorker {
 
 
 impl ExpirationWorker {
+    /// Create a new worker to expire old keys
+    pub fn new(channel: Sender<ExecutorRequest>) -> ExpirationWorker {
+        ExpirationWorker {
+            channel,
+            ncalls: 5,
+            interval: Duration::from_secs(5),
+            shutdown_signal: Arc::new(AtomicBool::new(false)),
+            thread: None,
+        }
+    }
     /// Send a series of requests to expire some keys
     fn expire_keys(&self) {
         for _ in 0..self.ncalls {
@@ -59,15 +69,31 @@ impl ExpirationWorker {
     }
 
     /// Spawn a thread
-    pub fn spawn(&mut self) {
-        let join_handle = thread::spawn(|| {
-            self.run();
+    pub fn start(&mut self) {
+        let mut temp_worker = ExpirationWorker {
+            channel: self.channel.clone(),
+            ncalls: self.ncalls,
+            interval: self.interval.clone(),
+            shutdown_signal: Arc::clone(&self.shutdown_signal),
+            thread: None,
+        };
+        let join_handle = thread::spawn(move || {
+            temp_worker.run();
         });
         self.thread = Some(join_handle);
     }
 
+    /// Stop the worker
     pub fn stop(&mut self) {
-        unimplemented!("This is not implemented");
+        self.shutdown_signal.swap(true, Ordering::Relaxed);
+        if let Some(handle) = self.thread.take() {
+            match handle.join() {
+                Ok(()) => (),
+                Err(err) => {
+                    println!("Error shutting down expiration worker. {:?}", err);
+                }
+            }
+        }
     }
 }
 
